@@ -529,7 +529,7 @@ a {
   left: 1rem;
   z-index: 50;
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 0.5rem;
   padding:
     0.75rem
@@ -853,3 +853,99 @@ a {
     margin: 0;
   }
 }
+
+/* Training and nutrition share the existing theme, with comfortable phone targets. */
+.form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.85rem; }
+.field, .field-row > *, .app-shell__content, .page-header > *, .card__header > * { min-width: 0; }
+.field input, .field select { min-width: 0; max-width: 100%; }
+.inline-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
+.checkbox-field { display: flex; gap: 0.8rem; align-items: flex-start; line-height: 1.5; }
+.checkbox-field input { flex: 0 0 22px; width: 22px; height: 22px; accent-color: var(--primary); }
+.training-intro { display: grid; gap: 1.25rem; padding: 1.4rem; background: linear-gradient(135deg, var(--primary-soft), var(--surface)); }
+.training-intro h2 { margin: 0.8rem 0 0.6rem; font-size: clamp(1.4rem, 4vw, 1.85rem); max-width: 24ch; }
+.training-focus { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+.training-focus span { border: 1px solid var(--border); border-radius: 100px; padding: 0.45rem 0.7rem; font-size: 0.85rem; background: var(--surface); }
+.training-week-toolbar { display: flex; align-items: center; gap: 0.8rem; }
+.training-week-toolbar > div { flex: 1; }
+.training-week-toolbar .icon-button { flex-shrink: 0; }
+.match-row { display: flex; align-items: center; justify-content: space-between; gap: 0.8rem; padding: 0.5rem 0; }
+.match-row strong { overflow-wrap: anywhere; }
+.match-shortcuts { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.5rem; }
+.training-budget { display: flex; flex-wrap: wrap; gap: 0.8rem; justify-content: space-between; align-items: center; }
+.training-budget > p { flex: 1 1 100%; }
+.training-days { display: grid; grid-template-columns: repeat(7, minmax(44px, 1fr)); gap: 0.4rem; overflow-x: auto; padding: 3px; }
+.training-day { display: grid; justify-items: center; gap: 0.3rem; min-height: 90px; padding: 0.6rem 0.2rem; background: var(--surface); border: 1px solid var(--border); border-radius: 16px; }
+.training-day > span:first-child { color: var(--muted); font-size: 0.8rem; }
+.training-day > strong { font-size: 1.15rem; }
+.training-day--selected { background: var(--primary-soft); border-color: var(--primary); }
+.day-indicator { color: var(--primary); line-height: 1; font-weight: 700; }
+.day-indicator--match { font-size: 0.85rem; }
+.workout-card { scroll-margin-top: 7rem; }
+.workout-card h2 { font-size: clamp(1.35rem, 5vw, 1.8rem); }
+.workout-card .card__header { align-items: flex-start; }
+.coach-reason { padding: 0.9rem 1rem; border-left: 3px solid var(--primary); border-radius: 0 12px 12px 0; line-height: 1.55; background: var(--surface-soft); }
+.workout-drills { list-style: none; padding: 0; margin: 0; display: grid; gap: 1rem; }
+.workout-drills li { display: flex; align-items: flex-start; gap: 0.8rem; padding-bottom: 1rem; border-bottom: 1px solid var(--border); }
+.workout-drills li:last-child { border: 0; padding-bottom: 0; }
+.workout-drills h3 { font-size: 1rem; }
+.drill-number { flex: 0 0 28px; height: 28px; display: grid; place-items: center; border-radius: 9px; color: var(--primary); background: var(--primary-soft); font-size: 0.8rem; font-weight: 700; }
+.drill-dose { margin: 0.3rem 0; color: var(--primary); font-weight: 600; line-height: 1.5; }
+.workout-actions { display: flex; flex-wrap: wrap; gap: 0.7rem; align-items: center; }
+.workout-actions > * { flex: 1 1 170px; }
+.week-list { display: grid; }
+.week-list__row { display: grid; grid-template-columns: 2.2rem minmax(0, 1fr) 2.2rem; align-items: center; gap: 0.7rem; text-align: left; padding: 0.9rem 0; min-height: 52px; border-bottom: 1px solid var(--border); }
+.week-list__row:last-child { border-bottom: 0; }
+.week-list__row > span { color: var(--muted); font-size: 0.85rem; }
+.week-list__row > span:last-child { text-align: right; }
+.week-list__row > strong { font-size: 0.95rem; font-weight: 500; }
+.training-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.75rem; }
+.training-stats > div { display: grid; align-content: start; gap: 0.35rem; }
+.training-stats strong { font-size: 1.7rem; color: var(--primary); }
+.training-stats span { color: var(--muted); font-size: 0.85rem; line-height: 1.4; }
+.training-notes summary { cursor: pointer; min-height: 32px; font-weight: 600; }
+.training-notes[open] summary { margin-bottom: 0.8rem; }
+.today-training { display: flex; flex-wrap: wrap; gap: 1rem; justify-content: space-between; align-items: center; }
+.today-training h2 { margin: 0.4rem 0; font-size: 1.2rem; }
+.food-search__result > div:first-child { min-width: 0; overflow-wrap: anywhere; }
+.food-search__result h3 { font-size: 1rem; line-height: 1.4; }
+.food-search__result { gap: 0.6rem; }
+.food-search__confirm h3 { overflow-wrap: anywhere; }
+.food-estimate { color: var(--primary); }
+.food-estimate strong { font-size: 2rem; }
+.food-source { display: inline-block; min-height: 32px; padding-top: 0.5rem; font-size: 0.85rem; color: var(--muted); }
+.training-day:focus-visible, .week-list__row:focus-visible, summary:focus-visible, a:focus-visible { outline: 3px solid var(--primary); outline-offset: 2px; }
+.modal-shell__panel { max-height: min(88dvh, 900px); overscroll-behavior: contain; }
+.modal-shell__body { padding-bottom: max(1rem, env(safe-area-inset-bottom)); }
+.icon-button { min-width: 44px; min-height: 44px; flex-shrink: 0; }
+.bottom-nav__item { min-height: 48px; min-width: 0; }
+@media (max-width: 600px) {
+  .training-page .page-header { align-items: start; flex-wrap: wrap; }
+  .training-page .page-header__action { margin-left: auto; }
+  .match-row { flex-wrap: wrap; }
+  .match-row .inline-actions { margin-left: auto; }
+  .entry-row { flex-wrap: wrap; }
+  .entry-row__content { min-width: 0; overflow-wrap: anywhere; }
+  .bottom-nav { left: 0.5rem; right: 0.5rem; gap: 0.1rem; padding-left: 0.25rem; padding-right: 0.25rem; }
+  .bottom-nav__item { font-size: 0.7rem; }
+}
+@media (max-width: 380px) {
+  .form-grid { grid-template-columns: minmax(0, 1fr); }
+  .training-week-toolbar { gap: 0.4rem; }
+  .training-week-toolbar strong { font-size: 0.85rem; }
+  .match-shortcuts .button { padding-inline: 0.5rem; }
+  .food-search__result { flex-wrap: wrap; }
+  .food-search__action { display: flex; align-items: center; justify-content: space-between; width: 100%; }
+  .card__header { flex-wrap: wrap; }
+}
+@media (min-width: 1024px) {
+  .app-shell__content { grid-column: 2; grid-row: 1; }
+  .bottom-nav { grid-column: 1; grid-row: 1; }
+  .workout-card { scroll-margin-top: 1rem; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; }
+}
+.training-history { padding-top: 0.75rem; border-top: 1px solid var(--border); }
+.training-history summary { min-height: 48px; cursor: pointer; line-height: 1.5; }
+.training-history summary span { display: block; font-size: 0.85rem; color: var(--muted); }
+.training-history[open] summary { margin-bottom: 0.75rem; }

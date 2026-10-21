@@ -1,105 +1,251 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { MealType } from '../types';
 import {
   isUsdaFoodSearchConfigured,
-  searchUsdaFoods,
-  type UsdaFoodResult
+  searchUsdaFoods
 } from '../services/usdaFoodSearch';
+import { portionCalories, type FoodResult } from '../services/foodNutrition';
 import { ModalShell } from './ModalShell';
 
 interface FoodSearchSheetProps {
   open: boolean;
   onClose: () => void;
-  onAddFood: (input: { calories: number; description: string; meal?: MealType }) => void;
+  onAddFood: (input: {
+    calories: number;
+    description: string;
+    meal?: MealType;
+  }) => void;
 }
 
-const MEAL_OPTIONS: Array<{ value: MealType; label: string }> = [
-  { value: 'breakfast', label: 'Breakfast' },
-  { value: 'lunch', label: 'Lunch' },
-  { value: 'dinner', label: 'Dinner' },
-  { value: 'snack', label: 'Snack' },
-  { value: 'other', label: 'Other' }
-];
-
-export function FoodSearchSheet({ open, onClose, onAddFood }: FoodSearchSheetProps) {
+export function FoodSearchSheet({
+  open,
+  onClose,
+  onAddFood
+}: FoodSearchSheetProps) {
   const [query, setQuery] = useState('');
-  const [results, setResults] = useState<UsdaFoodResult[]>([]);
-  const [selectedFood, setSelectedFood] = useState<UsdaFoodResult | null>(null);
-  const [selectedCalories, setSelectedCalories] = useState('');
+  const [results, setResults] = useState<FoodResult[]>([]);
+  const [selectedFood, setSelectedFood] = useState<FoodResult | null>(null);
+  const [amount, setAmount] = useState('100');
   const [meal, setMeal] = useState('');
   const [isSearching, setIsSearching] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [message, setMessage] = useState('');
+  const [error, setError] = useState('');
+  const requestRef = useRef<AbortController | null>(null);
+  const reviewRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (open) {
+      setSelectedFood(null);
+      setError('');
+      setIsSearching(false);
+    }
+    return () => {
+      requestRef.current?.abort();
+    };
+  }, [open]);
+  useEffect(() => {
+    if (selectedFood) reviewRef.current?.scrollIntoView({ block: 'nearest' });
+  }, [selectedFood]);
 
   async function handleSearch(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const normalizedQuery = query.trim();
-
-    if (normalizedQuery.length < 2) {
-      setError('Enter at least two characters to search.');
-      return;
-    }
-
+    requestRef.current?.abort();
+    const controller = new AbortController();
+    requestRef.current = controller;
     setIsSearching(true);
-    setError(null);
-
+    setError('');
+    setMessage('');
+    setResults([]);
+    setSelectedFood(null);
     try {
-      const foods = await searchUsdaFoods(normalizedQuery);
-      setResults(foods);
-      setSelectedFood(null);
-      if (foods.length === 0) setError('No matching foods found. Try a simpler search.');
-    } catch (searchError) {
-      setError(searchError instanceof Error ? searchError.message : 'Food search failed.');
+      const result = await searchUsdaFoods(query, controller.signal);
+      if (controller.signal.aborted) return;
+      setResults(result.foods);
+      setMessage(
+        result.foods.length
+          ? `${result.foods.length} foods${result.cached ? ' · saved search' : ''}. Choose the preparation and brand that match your food.`
+          : 'No foods with calorie data found. Try a simpler name, such as “rice cooked”.'
+      );
+    } catch (err) {
+      if (!controller.signal.aborted)
+        setError(err instanceof Error ? err.message : 'Food search failed.');
     } finally {
-      setIsSearching(false);
+      if (!controller.signal.aborted) setIsSearching(false);
     }
   }
 
+  const calories = selectedFood
+    ? portionCalories(selectedFood, Number(amount))
+    : 0;
   return (
-    <ModalShell open={open} title="Search USDA Foods" onClose={onClose}>
+    <ModalShell open={open} title="Search food" onClose={onClose}>
       <div className="food-search">
-        <p className="sheet-form__hint">Search USDA FoodData Central, then review the calorie amount before adding it.</p>
+        <p className="sheet-form__hint">
+          Find a food, enter your portion, and review the calorie estimate.
+        </p>
         <form className="food-search__form" onSubmit={handleSearch}>
           <label className="field">
-            <span>Food</span>
-            <input autoFocus type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Chicken breast, oatmeal, banana" />
+            <span>Food or brand</span>
+            <input
+              type="search"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Banana, chicken breast, cooked rice"
+              minLength={2}
+              maxLength={120}
+              required
+            />
           </label>
-          <label className="field">
-            <span>Meal</span>
-            <select value={meal} onChange={(event) => setMeal(event.target.value)}>
-              <option value="">None</option>
-              {MEAL_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-            </select>
-          </label>
-          <button type="submit" className="button button--primary" disabled={isSearching}>{isSearching ? 'Searching...' : 'Search foods'}</button>
+          <button
+            type="submit"
+            className="button button--primary"
+            disabled={isSearching}
+          >
+            {isSearching ? 'Searching USDA…' : 'Search foods'}
+          </button>
         </form>
-        {!isUsdaFoodSearchConfigured() ? <p className="form-message">USDA search needs a secure endpoint before it can be used. Manual calorie logging remains available.</p> : null}
-        {error ? <p className="form-message form-message--error">{error}</p> : null}
-        {results.length > 0 ? (
-          <div className="food-search__results" aria-live="polite">
-            {results.map((food) => (
-              <article key={food.id} className="food-search__result">
-                <div><h3>{food.description}</h3><p>{[food.brand, food.servingDescription].filter(Boolean).join(' · ') || 'USDA food result'}</p></div>
-                <div className="food-search__action"><strong>{food.calories} cal</strong><button type="button" className="button button--secondary" onClick={() => { setSelectedFood(food); setSelectedCalories(String(food.calories)); }}>Use</button></div>
-              </article>
-            ))}
-          </div>
-        ) : null}
-        {selectedFood ? (
-          <form className="food-search__confirm" onSubmit={(event) => {
-            event.preventDefault();
-            const calories = Number(selectedCalories);
-            if (!Number.isFinite(calories) || calories <= 0) {
-              setError('Enter a calorie amount greater than zero.');
-              return;
-            }
-            onAddFood({ calories, description: selectedFood.brand ? `${selectedFood.description} (${selectedFood.brand})` : selectedFood.description, meal: meal ? (meal as MealType) : undefined });
-          }}>
-            <p><strong>Review {selectedFood.description}</strong></p>
-            <label className="field"><span>Calories to add</span><input inputMode="numeric" type="number" min="1" step="1" value={selectedCalories} onChange={(event) => setSelectedCalories(event.target.value)} required /></label>
-            <p className="sheet-form__hint">Adjust this if your portion differs from the USDA result.</p>
-            <button type="submit" className="button button--primary">Add to today</button>
-          </form>
-        ) : null}
+        {error && (
+          <p className="form-message form-message--error" role="alert">
+            {error}
+          </p>
+        )}
+        <p className="sheet-form__hint" role="status">
+          {message}
+        </p>
+        <div ref={reviewRef}>
+          {selectedFood && (
+            <form
+              className="food-search__confirm card card--subtle"
+              onSubmit={(event) => {
+                event.preventDefault();
+                if (
+                  !Number.isFinite(Number(amount)) ||
+                  Number(amount) <= 0 ||
+                  Number(amount) > 10000 ||
+                  !Number.isFinite(calories)
+                ) {
+                  setError('Enter a portion between 0.1 and 10,000.');
+                  return;
+                }
+                onAddFood({
+                  calories,
+                  description: `${selectedFood.description}${selectedFood.brand ? ` (${selectedFood.brand})` : ''} · ${amount} ${selectedFood.unit} · USDA estimate`,
+                  meal: meal ? (meal as MealType) : undefined
+                });
+              }}
+            >
+              <div className="card__header">
+                <h3>{selectedFood.description}</h3>
+                <button
+                  type="button"
+                  className="button button--inline"
+                  onClick={() => setSelectedFood(null)}
+                >
+                  Cancel
+                </button>
+              </div>
+              <div className="form-grid">
+                <label className="field">
+                  <span>Portion ({selectedFood.unit})</span>
+                  <input
+                    inputMode="decimal"
+                    type="number"
+                    min="0.1"
+                    max="10000"
+                    step="0.1"
+                    value={amount}
+                    onChange={(event) => setAmount(event.target.value)}
+                    required
+                  />
+                </label>
+                <label className="field">
+                  <span>Meal</span>
+                  <select
+                    value={meal}
+                    onChange={(event) => setMeal(event.target.value)}
+                  >
+                    <option value="">Other</option>
+                    {['breakfast', 'lunch', 'dinner', 'snack'].map((value) => (
+                      <option key={value} value={value}>
+                        {value[0].toUpperCase() + value.slice(1)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+              {selectedFood.servingAmount && (
+                <button
+                  type="button"
+                  className="button button--secondary"
+                  onClick={() => setAmount(String(selectedFood.servingAmount))}
+                >
+                  Use label serving · {selectedFood.servingDescription}
+                </button>
+              )}
+              <p className="food-estimate">
+                <strong>
+                  {Number.isFinite(calories) && Number(amount) > 0
+                    ? calories
+                    : '—'}
+                </strong>{' '}
+                kcal estimated
+              </p>
+              <p className="sheet-form__hint">
+                {Math.round(selectedFood.caloriesPer100)} kcal per 100{' '}
+                {selectedFood.unit}. Preparation, oils and sauces can change the
+                total.
+              </p>
+              <button type="submit" className="button button--primary">
+                Add to today
+              </button>
+            </form>
+          )}
+        </div>
+        <div className="food-search__results" aria-busy={isSearching}>
+          {results.map((food) => (
+            <article key={food.id} className="food-search__result">
+              <div>
+                <h3>{food.description}</h3>
+                <p>
+                  {food.brand || 'Generic food'} · per 100 {food.unit}
+                </p>
+                <a
+                  className="food-source"
+                  href={`https://fdc.nal.usda.gov/food-details/${encodeURIComponent(food.id)}/nutrients`}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  USDA details
+                </a>
+              </div>
+              <div className="food-search__action">
+                <strong>{Math.round(food.caloriesPer100)} kcal</strong>
+                <button
+                  type="button"
+                  className="button button--secondary"
+                  aria-label={`Choose ${food.description}`}
+                  onClick={() => {
+                    setSelectedFood(food);
+                    setAmount(String(food.servingAmount ?? 100));
+                    setError('');
+                  }}
+                >
+                  Choose
+                </button>
+              </div>
+            </article>
+          ))}
+        </div>
+        <p className="sheet-form__hint">
+          Data:{' '}
+          <a href="https://fdc.nal.usda.gov/" target="_blank" rel="noreferrer">
+            USDA FoodData Central
+          </a>
+          .{' '}
+          {isUsdaFoodSearchConfigured()
+            ? 'Recent searches are saved on this device.'
+            : 'Public access has a small search allowance. Recent searches are saved to reduce requests and work offline.'}
+        </p>
       </div>
     </ModalShell>
   );

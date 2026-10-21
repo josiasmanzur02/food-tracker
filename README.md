@@ -5,7 +5,9 @@ CalorieTrack is a mobile-first Progressive Web App for simple daily calorie and 
 ## Features
 
 - First-run onboarding that estimates maintenance calories and a daily target using the Mifflin-St Jeor equation.
-- Today dashboard with calorie remaining, quick manual entry, AI meal scanning, and weight summary.
+- Today dashboard with calorie remaining, manual entry, online USDA food search, a daily football workout, and weight summary.
+- Food search works immediately with USDA public access, scales calories by grams or millilitres, and caches recent searches for offline reuse.
+- Training tab with match scheduling, daily readiness, workout logging, kettlebell strength, ball skills, speed/jump foundations, and low-impact endurance.
 - Weight logging with same-day updates, progress calculations, trend chart, and estimated goal-date logic when enough data exists.
 - History view for previous days with calorie totals, weigh-ins, and editing support.
 - Settings for profile, goal target, custom calorie target, theme, backup import/export, and reset.
@@ -87,10 +89,11 @@ The app uses a manifest, generated icons, theme metadata, and a service worker s
 
 ## Local data and privacy
 
-- Calorie entries, weight entries, profile data, and settings are stored in local browser storage on the current device.
+- Calorie entries, weight entries, training preferences, matches, readiness check-ins, workout logs, profile data, and settings are stored in local browser storage on the current device.
+- Food queries are sent to USDA (or your configured search Worker). Training data stays on your device. Up to 30 food searches are cached locally for seven days; these disposable results are not included in backups.
 - No account, cloud sync, database, Supabase, Firebase, or backend is required for normal tracking.
 - Export creates a JSON backup download such as `calorietrack-backup-YYYY-MM-DD.json`.
-- Import validates the backup structure before replacing local data.
+- Import validates the backup structure before replacing local data. Version 1 backups automatically gain conservative training defaults; version 2 backups include all training data.
 - Reset clears all local app data from the current device.
 
 ## AI meal scanner architecture
@@ -125,9 +128,17 @@ An example file is included at [.env.example](/Users/josias/Documents/Projects/c
 
 Do not put an OpenAI key or any other AI provider secret in the Vite frontend, committed `.env` files, or GitHub Pages output. Anything bundled into the frontend can be inspected and stolen. Backend secrets belong only on the backend platform.
 
-## Free USDA Food Search
+## Online food search
 
-The `Search Food` action searches USDA FoodData Central. USDA provides food and nutrition lookup, not meal-photo recognition. A small Cloudflare Worker is included so the free USDA key stays off GitHub Pages.
+`Search Food` works without environment configuration by calling [USDA FoodData Central](https://fdc.nal.usda.gov/api-guide/) with its intentionally public `DEMO_KEY`. This is real nutrition data, not a mock response. Public access has a small, shared per-IP search allowance; the [general documented limits](https://api.data.gov/docs/rate-limits/) are 30/hour and 50/day, and USDA can impose lower endpoint-specific limits. Use the optional Worker with your own key for regular production usage.
+
+Search runs only when submitted, never on every keystroke. Recent successful searches are cached for seven days (up to 30 queries) and available offline. Requests have a 15-second timeout, cancellation, and clear rate-limit/network/empty-result messages. Search results with missing energy are omitted; zero-calorie foods are supported.
+
+Energy values are kept **per 100 g or 100 ml**, then multiplied by the entered portion. Label serving sizes are offered only when their units are usable; cups/pieces/ounces are not guessed as grams. Kilojoules are never treated as kilocalories. Estimates include the amount and USDA attribution in the saved entry. Prepared meals, oils and sauces still need user review.
+
+### Optional private-key Worker
+
+A Cloudflare Worker keeps your own USDA API key out of the browser. The app uses it when `VITE_USDA_FOOD_SEARCH_API_URL` is set; otherwise it uses public access.
 
 1. Create a free key from the [USDA API guide](https://fdc.nal.usda.gov/api-guide/).
 2. From `worker/`, run `npx wrangler login`, then `npx wrangler secret put USDA_API_KEY`.
@@ -140,3 +151,29 @@ VITE_USDA_FOOD_SEARCH_API_URL=https://calorietrack-usda-search.your-subdomain.wo
 ```
 
 Do not put the USDA key in a `VITE_` variable. Those variables are published to every browser that loads the app.
+
+
+For GitHub Pages, set the repository Actions **variable** `VITE_USDA_FOOD_SEARCH_API_URL` to your deployed Worker URL. The deployment workflow passes it into the build. Never put a private USDA key in a `VITE_` variable. The Worker now shares the frontend's energy normalization; deploy the updated Worker for serving-size/unit support. Older Worker responses are conservatively treated as per 100 g without a suggested serving.
+
+## Football training
+
+Open **Training** (also linked from Today). The plan is a transparent local rules-based guide, not an AI service or a medical return-to-play assessment.
+
+- Defaults reflect the current equipment: **15 lb and 20 lb kettlebells**, returning-to-training volume, running and jumping disabled, a 60-minute weekly running ceiling, and at most two impact days. The ceiling is an editable planning constraint, not a recommended dose of running.
+- Update preferences to choose your level, available bells, running ceiling and impact settings. Running requires explicit enablement and a pain-free check-in on the day; jumping requires an additional opt-in. Shin symptoms pause impact and swap the session for gentle recovery. Endurance uses cycling/swimming or pain-free walking, with seated movement as an alternative.
+- Each week starts with **match date unknown**. Wednesday–Sunday stay light for a possible Thursday–Sunday match. Choose **no match** to release those days, or add/edit/remove a fixture at any point. The calendar supports multiple match dates and local kickoff times, and reserves expected playing minutes before adding extra running.
+- Two pre-match days are lighter; the first two post-match days are recovery, including across week boundaries. Congested fixtures may reduce kettlebell sessions below two. A fixture is a schedule entry, not clearance to play through pain. Fixtures exceeding your running or impact limits are highlighted.
+- On a clear week, the plan includes two spaced kettlebell sessions, ball-control/first-touch drills, aerobic conditioning, and rest. When enabled and appropriate, short controlled accelerations and low jumps replace the impact-free foundations.
+- Log completed or skipped sessions, actual duration, running/playing time, effort and shin symptoms. Original session details are saved, so replanning does not rewrite history. A late same-day match can be logged alongside an already completed workout. Missed days do not generate catch-up sessions.
+- Progress uses the preceding 14 days of logged workouts. Four manageable work sessions can add one strength repetition per set; recent pain or high effort reduces strength volume. Running limits never increase automatically, and weight loss alone does not unlock impact.
+
+The conservative approach is informed by [NHS shin-splint guidance](https://www.nhs.uk/conditions/shin-splints/), [NSCA return-to-training guidance](https://www.nsca.com/about-us/position-statements/safe-return-to-training/), and [research on post-match recovery](https://www.frontiersin.org/journals/physiology/articles/10.3389/fphys.2021.685804/full). Exact schedules and progression thresholds are app design choices, not a validated individualized rehabilitation protocol.
+
+## Verification
+
+```bash
+npm test
+npm run build
+```
+
+The test suite covers data migration, training backup round trips, match scheduling and cross-week recovery, shin-pain/effort adjustments, running budgets, progress rules, food portions/energy units, offline caching, API errors/cancellation, and Worker validation. It uses existing Vite tooling and Node's test runner; no extra test dependencies are needed.

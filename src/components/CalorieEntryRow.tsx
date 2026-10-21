@@ -25,6 +25,7 @@ export function CalorieEntryRow({
         <div className="entry-row__topline">
           {entry.meal ? <span className="pill">{MEAL_LABELS[entry.meal]}</span> : null}
           {entry.source === 'ai' ? <span className="pill pill--muted">AI estimate</span> : null}
+          {entry.source === 'food' ? <span className="pill pill--muted">Food estimate</span> : null}
         </div>
         <h3>{entry.description?.trim() || 'Calorie entry'}</h3>
         <p className="entry-row__calories">{entry.calories.toLocaleString()} kcal</p>

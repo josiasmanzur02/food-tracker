@@ -15,6 +15,7 @@ import {
   resetData,
   saveProfile,
   saveSettings,
+  saveTraining,
   saveWeightEntry,
   updateCalorieEntry
 } from './services/storage';
@@ -37,6 +38,8 @@ import { OnboardingPage, type OnboardingSubmission } from './pages/OnboardingPag
 import { ProgressPage } from './pages/ProgressPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { TodayPage } from './pages/TodayPage';
+import { TrainingPage } from './pages/TrainingPage';
+import { buildTrainingWeek, getWeekStart } from './utils/training';
 
 const MealScannerSheet = lazy(() => import('./components/MealScannerSheet'));
 
@@ -66,6 +69,7 @@ function getPageFromHash(): AppPage {
 
   if (
     rawHash === 'today' ||
+    rawHash === 'training' ||
     rawHash === 'progress' ||
     rawHash === 'history' ||
     rawHash === 'settings'
@@ -110,7 +114,13 @@ export default function App() {
     entry: WeightEntry | null;
   }>({ open: false, date: getDateKey(), entry: null });
 
-  const todayDate = getDateKey();
+  const [todayDate, setTodayDate] = useState(getDateKey);
+  useEffect(() => {
+    const updateDate = () => setTodayDate(getDateKey());
+    const timer = window.setInterval(updateDate, 60000);
+    window.addEventListener('focus', updateDate);
+    return () => { window.clearInterval(timer); window.removeEventListener('focus', updateDate); };
+  }, []);
   const profile = appData.profile;
   const currentWeightKg = profile ? getCurrentWeightKg(profile, appData.weightEntries) : 0;
 
@@ -475,7 +485,7 @@ export default function App() {
       title: 'Reset CalorieTrack?',
       message: (
         <p>
-          This will permanently remove your calorie history, weight history and settings
+          This will permanently remove your calorie history, weight history, training history and settings
           from this device.
         </p>
       ),
@@ -527,6 +537,8 @@ export default function App() {
                 setCalorieEditor({ open: true, date: todayDate, entry: null })
               }
               onOpenMealScanner={() => setFoodSearchOpen(true)}
+              trainingSession={buildTrainingWeek(appData.training, getWeekStart(todayDate), todayDate).find((session) => session.date === todayDate)!}
+              onOpenTraining={() => navigate('training')}
               onEditEntry={(entry) =>
                 setCalorieEditor({ open: true, date: entry.date, entry })
               }
@@ -535,6 +547,13 @@ export default function App() {
                 setWeightEditor({ open: true, date: todayDate, entry: null })
               }
             />
+          ) : null}
+
+          {activePage === 'training' ? (
+            <TrainingPage key={todayDate} data={appData.training} today={todayDate} onChange={(training, message) => {
+              setAppData(saveTraining(training));
+              setStatusMessage(message);
+            }} />
           ) : null}
 
           {activePage === 'progress' ? (
@@ -611,11 +630,11 @@ export default function App() {
             calories: input.calories,
             description: input.description,
             meal: input.meal,
-            source: 'manual'
+            source: 'food'
           });
           setAppData(nextData);
           setFoodSearchOpen(false);
-          setStatusMessage('USDA food added.');
+          setStatusMessage('Food estimate added.');
         }}
       />
 
@@ -652,6 +671,7 @@ export default function App() {
               <p>This backup contains:</p>
               <p>{pendingImport.calorieEntryCount} calorie entries</p>
               <p>{pendingImport.weightEntryCount} weight entries</p>
+              <p>{pendingImport.workoutCount} training logs, plus match schedule and preferences</p>
               <p>
                 Profile created{' '}
                 {pendingImport.profileCreatedAt

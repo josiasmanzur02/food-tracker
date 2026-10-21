@@ -1,4 +1,4 @@
-export type AppPage = 'today' | 'progress' | 'history' | 'settings';
+export type AppPage = 'today' | 'training' | 'progress' | 'history' | 'settings';
 export type AppTheme = 'system' | 'light' | 'dark';
 export type UnitSystem = 'imperial' | 'metric';
 export type Sex = 'male' | 'female';
@@ -13,7 +13,7 @@ export type LossGoalRate = 'slow' | 'moderate' | 'faster' | 'aggressive';
 export type GainGoalRate = 'slow' | 'moderate' | 'faster';
 export type GoalRate = LossGoalRate | GainGoalRate;
 export type MealType = 'breakfast' | 'lunch' | 'dinner' | 'snack' | 'other';
-export type EntrySource = 'manual' | 'ai';
+export type EntrySource = 'manual' | 'ai' | 'food';
 export type MealScanConfidence = 'low' | 'medium' | 'high';
 
 export interface ActivityLevelOption {
@@ -111,11 +111,77 @@ export interface AppData {
   settings: AppSettings;
   calorieEntries: CalorieEntry[];
   weightEntries: WeightEntry[];
+  training: TrainingData;
 }
 
 export interface ImportPreview {
   data: AppData;
   calorieEntryCount: number;
   weightEntryCount: number;
+  workoutCount: number;
   profileCreatedAt: string | null;
+}
+
+export type ShinPain = 'none' | 'mild' | 'painful';
+export type SessionKind = 'strengthA' | 'strengthB' | 'endurance' | 'skills' | 'primer' | 'recovery' | 'match' | 'rest';
+
+export interface TrainingPreferences {
+  level: 'returning' | 'regular';
+  kettlebellsLb: number[];
+  weeklyRunMinutes: number;
+  maxImpactDays: number;
+  allowRunning: boolean;
+  allowJumping: boolean;
+}
+
+export interface FootballMatch {
+  id: string;
+  date: string;
+  kickoff: string;
+  label: string;
+  plannedMinutes: number;
+}
+
+export interface TrainingCheckIn {
+  date: string;
+  energy: 'fresh' | 'okay' | 'tired';
+  shinPain: ShinPain;
+}
+
+export interface TrainingDrill {
+  name: string;
+  dose: string;
+  cue: string;
+}
+
+export interface TrainingSession {
+  date: string;
+  kind: SessionKind;
+  title: string;
+  minutes: number;
+  runningMinutes: number;
+  impact: boolean;
+  intensity: 'easy' | 'moderate' | 'hard';
+  reason: string;
+  drills: TrainingDrill[];
+}
+
+export interface WorkoutLog {
+  id: string;
+  date: string;
+  status: 'completed' | 'skipped';
+  session: TrainingSession;
+  minutes: number;
+  runningMinutes: number;
+  effort: number;
+  shinPain: ShinPain;
+  createdAt: string;
+}
+
+export interface TrainingData {
+  preferences: TrainingPreferences;
+  matches: FootballMatch[];
+  weeks: Array<{ weekStart: string; matchStatus: 'unknown' | 'none' }>;
+  checkIns: TrainingCheckIn[];
+  logs: WorkoutLog[];
 }

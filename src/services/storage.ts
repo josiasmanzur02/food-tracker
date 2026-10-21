@@ -7,12 +7,14 @@ import type {
   ImportPreview,
   MealScanConfidence,
   MealType,
+  TrainingData,
   UserProfile,
   WeightEntry
 } from '../types';
+import { createTrainingData, normalizeTraining } from './trainingStorage';
 
 const STORAGE_KEY = 'calorietrack.appdata';
-const DATA_VERSION = 1;
+const DATA_VERSION = 2;
 
 export const DEFAULT_SETTINGS: AppSettings = {
   theme: 'system'
@@ -78,7 +80,8 @@ export function createEmptyAppData(): AppData {
     profile: null,
     settings: DEFAULT_SETTINGS,
     calorieEntries: [],
-    weightEntries: []
+    weightEntries: [],
+    training: createTrainingData()
   };
 }
 
@@ -127,7 +130,7 @@ function normalizeCalorieEntry(value: unknown): CalorieEntry | null {
     !isFiniteNumber(value.calories) ||
     typeof value.createdAt !== 'string' ||
     typeof value.updatedAt !== 'string' ||
-    (value.source !== 'manual' && value.source !== 'ai')
+    (value.source !== 'manual' && value.source !== 'ai' && value.source !== 'food')
   ) {
     return null;
   }
@@ -292,7 +295,8 @@ export function migrateData(value: unknown): AppData {
     profile: normalizeProfile(value.profile),
     settings: normalizeSettings(value.settings),
     calorieEntries: sortCalorieEntries(calorieEntries),
-    weightEntries: dedupeWeightEntries(weightEntries)
+    weightEntries: dedupeWeightEntries(weightEntries),
+    training: normalizeTraining(value.training)
   };
 }
 
@@ -350,6 +354,10 @@ export function saveSettings(settings: AppSettings): AppData {
     ...data,
     settings
   }));
+}
+
+export function saveTraining(training: TrainingData): AppData {
+  return updateAppData((data) => ({ ...data, training }));
 }
 
 export function getDailyEntries(date: string): CalorieEntry[] {
@@ -504,6 +512,7 @@ export function parseImportData(fileContents: string): ImportPreview {
     data: normalizedData,
     calorieEntryCount: normalizedData.calorieEntries.length,
     weightEntryCount: normalizedData.weightEntries.length,
+    workoutCount: normalizedData.training.logs.length,
     profileCreatedAt: normalizedData.profile.createdAt
   };
 }
@@ -517,6 +526,7 @@ export function resetData(): AppData {
 
   if (canUseStorage()) {
     window.localStorage.removeItem(STORAGE_KEY);
+    window.localStorage.removeItem('calorietrack.food-search.v2');
   }
 
   return emptyData;

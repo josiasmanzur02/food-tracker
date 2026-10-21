@@ -1,4 +1,4 @@
-const CACHE_VERSION = 'calorietrack-v1';
+const CACHE_VERSION = 'calorietrack-v2';
 
 function appShellUrl(path) {
   return new URL(path, self.registration.scope).toString();
