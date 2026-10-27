@@ -22,7 +22,7 @@ const NAV_ITEMS: Array<{
   },
   {
     page: 'training',
-    label: 'Training',
+    label: 'Activity',
     icon: <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 8v8M3 10v4M18 8v8M21 10v4M6 12h12M8 5h8M8 19h8" /></svg>
   },
   {

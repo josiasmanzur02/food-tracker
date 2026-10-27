@@ -1,12 +1,16 @@
 import { useState } from 'react';
 import type {
   FootballMatch,
+  AppleHealthData,
+  UnitSystem,
   ShinPain,
   TrainingData,
   TrainingSession,
   WorkoutLog
 } from '../types';
 import { AppHeader } from '../components/AppHeader';
+import { ActivitySummary } from '../components/ActivitySummary';
+import type { AppleHealthController } from '../hooks/useAppleHealth';
 import {
   MatchSheet,
   TrainingSettingsSheet,
@@ -86,7 +90,9 @@ function Readiness({ data, today, onChange }: TrainingPageProps) {
   );
 }
 
-export function TrainingPage({ data, today, onChange }: TrainingPageProps) {
+export function TrainingPage({ data, today, onChange, activity, health, unitSystem }: TrainingPageProps & {
+  activity: AppleHealthData; health: AppleHealthController; unitSystem: UnitSystem;
+}) {
   const [weekStart, setWeekStart] = useState(getWeekStart(today));
   const [selectedDate, setSelectedDate] = useState(today);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -188,9 +194,9 @@ export function TrainingPage({ data, today, onChange }: TrainingPageProps) {
   return (
     <div className="page training-page">
       <AppHeader
-        eyebrow="Football performance"
-        title="Training"
-        subtitle="Stronger. Sharper. Ready for match night."
+        eyebrow="Movement & football performance"
+        title="Activity"
+        subtitle="Your daily movement, workouts and football training."
         action={
           <button
             type="button"
@@ -201,6 +207,7 @@ export function TrainingPage({ data, today, onChange }: TrainingPageProps) {
           </button>
         }
       />
+      <ActivitySummary data={activity} health={health} today={today} unitSystem={unitSystem} />
       <section className="training-intro card">
         <div>
           <span className="pill">Shin-aware plan</span>

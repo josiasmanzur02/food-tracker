@@ -182,6 +182,10 @@ const outputs = [
   { path: resolve('public/icons/apple-touch-icon.png'), size: 180 }
 ];
 
+if (process.argv.includes('--ios')) {
+  outputs.push({ path: resolve('ios/CalorieTrack/Assets.xcassets/AppIcon.appiconset/icon-1024.png'), size: 1024 });
+}
+
 for (const output of outputs) {
   ensureDirectory(output.path);
   writeFileSync(output.path, renderIcon(output.size));

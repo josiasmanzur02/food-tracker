@@ -10,16 +10,116 @@ import {
   getWeekStart
 } from '../src/utils/training';
 import { addDays } from '../src/utils/dates';
-import { createEmptyAppData, migrateData } from '../src/services/storage';
+import { createEmptyAppData, migrateData, saveActivity, getAppData, exportData, importData, resetData } from '../src/services/storage';
+import { createAppleHealthData, normalizeAppleHealth, parseHealthSnapshot, readAppleHealth, requestAppleHealthAccess, supportsAppleHealth } from '../src/services/appleHealth';
 import {
   normalizeUsdaFoods,
   portionCalories
 } from '../src/services/foodNutrition';
 import { searchUsdaFoods } from '../src/services/usdaFoodSearch';
 import worker from '../worker/src/index.js';
-import type { TrainingData, TrainingSession, WorkoutLog } from '../src/types';
+import type { ActivityDay, HealthSnapshot, TrainingData, TrainingSession, WorkoutLog } from '../src/types';
 
 const monday = '2026-10-19';
+function healthSnapshot(): HealthSnapshot {
+  const day: ActivityDay = {
+    date: monday, steps: 8400, activeEnergyKcal: 480, moveMinutes: null, moveMode: 'energy',
+    exerciseMinutes: 42, standMinutes: 87, standHours: 10,
+    moveGoal: 600, exerciseGoalMinutes: 30, standGoalHours: 12
+  };
+  return {
+    startDate: monday, endDate: monday, syncedAt: '2026-10-20T00:15:00Z', days: [day],
+    workouts: [
+      { id: 'walk', date: monday, activity: 'walking', name: 'Walk', start: '2026-10-19T13:00:00Z', end: '2026-10-19T13:30:00Z', minutes: 30, distanceMeters: 2500, activeEnergyKcal: 130 },
+      { id: 'football', date: monday, activity: 'soccer', name: 'Football', start: '2026-10-19T23:00:00Z', end: '2026-10-20T00:00:00Z', minutes: 60, distanceMeters: null, activeEnergyKcal: 350 }
+    ]
+  };
+}
+
+test('v2 backups gain empty activity data without losing training or food', () => {
+  const previous = { ...createEmptyAppData(), dataVersion: 2, activity: undefined };
+  const result = migrateData(previous);
+  assert.deepEqual(result.activity, { syncEnabled: false, snapshot: null });
+  assert.deepEqual(result.training, previous.training);
+});
+
+test('activity backups preserve units, unavailable readings and local workout dates across midnight', () => {
+  const snapshot = parseHealthSnapshot(healthSnapshot());
+  const result = migrateData(JSON.parse(JSON.stringify({ ...createEmptyAppData(), activity: { syncEnabled: true, snapshot } })));
+  assert.deepEqual(result.activity, { syncEnabled: true, snapshot });
+  assert.equal(snapshot.workouts[0].date, monday);
+  assert.equal(snapshot.days[0].standHours, 10);
+  assert.equal(snapshot.days[0].standMinutes, 87);
+  assert.equal(snapshot.days[0].moveMinutes, null);
+});
+
+test('invalid Health payloads, duplicate IDs and invalid dates cannot replace a summary', () => {
+  const snapshot = healthSnapshot();
+  for (const invalid of [
+    { ...snapshot, days: [{ ...snapshot.days[0], steps: -1 }] },
+    { ...snapshot, days: [{ ...snapshot.days[0], exerciseMinutes: Infinity }] },
+    { ...snapshot, days: [{ ...snapshot.days[0], date: '2026-02-30' }] },
+    { ...snapshot, days: [snapshot.days[0], snapshot.days[0]] },
+    { ...snapshot, workouts: [snapshot.workouts[0], snapshot.workouts[0]] },
+    { ...snapshot, workouts: [{ ...snapshot.workouts[0], date: '2026-10-18' }] },
+    { ...snapshot, workouts: [{ ...snapshot.workouts[0], end: '2026-10-19T12:00:00Z' }] }
+  ]) {
+    assert.throws(() => parseHealthSnapshot(invalid));
+    assert.equal(normalizeAppleHealth({ snapshot: invalid }).snapshot, null);
+  }
+});
+
+test('browser cannot claim an Apple Health connection; native access passes through the real bridge', async () => {
+  const original = Object.getOwnPropertyDescriptor(globalThis, 'window');
+  try {
+    Object.defineProperty(globalThis, 'window', { configurable: true, value: {} });
+    assert.equal(supportsAppleHealth(), false);
+    await assert.rejects(readAppleHealth(), /iPhone app/);
+    const calls: string[] = [];
+    Object.defineProperty(globalThis, 'window', { configurable: true, value: {
+      webkit: { messageHandlers: { appleHealth: { postMessage: async ({ action }: { action: string }) => {
+        calls.push(action);
+        return action === 'read' ? healthSnapshot() : true;
+      } } } }
+    } });
+    assert.equal(supportsAppleHealth(), true);
+    await requestAppleHealthAccess();
+    const result = await readAppleHealth();
+    assert.deepEqual(calls, ['authorize', 'read']);
+    assert.equal(result.days[0].steps, 8400);
+    assert.equal(result.workouts.length, 2);
+  } finally {
+    if (original) Object.defineProperty(globalThis, 'window', original);
+    else Reflect.deleteProperty(globalThis, 'window');
+  }
+});
+
+test('activity refresh replaces deleted workouts, survives backup, disables sync on import and clears on reset', () => {
+  const original = Object.getOwnPropertyDescriptor(globalThis, 'window');
+  const values = new Map<string, string>();
+  Object.defineProperty(globalThis, 'window', { configurable: true, value: { localStorage: {
+    getItem: (key: string) => values.get(key) ?? null,
+    setItem: (key: string, value: string) => values.set(key, value),
+    removeItem: (key: string) => values.delete(key)
+  } } });
+  try {
+    saveActivity({ syncEnabled: true, snapshot: healthSnapshot() });
+    saveActivity({ syncEnabled: true, snapshot: healthSnapshot() });
+    assert.equal(getAppData().activity.snapshot?.workouts.length, 2);
+    const updated = { ...healthSnapshot(), workouts: [] };
+    saveActivity({ syncEnabled: true, snapshot: updated });
+    assert.equal(getAppData().activity.snapshot?.workouts.length, 0);
+    const restored = importData(migrateData(JSON.parse(exportData())));
+    assert.equal(restored.activity.syncEnabled, false);
+    assert.deepEqual(restored.activity.snapshot, parseHealthSnapshot(updated));
+    assert.deepEqual(resetData().activity, createAppleHealthData());
+    assert.deepEqual(getAppData().activity, createAppleHealthData());
+  } finally {
+    if (original) Object.defineProperty(globalThis, 'window', original);
+    else Reflect.deleteProperty(globalThis, 'window');
+  }
+});
+
 function noMatch(): TrainingData {
   const data = createTrainingData();
   data.weeks = [{ weekStart: monday, matchStatus: 'none' }];
@@ -71,7 +171,8 @@ test('old backups migrate without losing calorie/weight data; training defaults 
   };
   const result = migrateData(old);
   assert.equal(result.calorieEntries[0].calories, 123);
-  assert.equal(result.dataVersion, 2);
+  assert.equal(result.dataVersion, 3);
+  assert.deepEqual(result.activity, createAppleHealthData());
   assert.deepEqual(result.training.preferences.kettlebellsLb, [15, 20]);
   assert.equal(result.training.preferences.allowRunning, false);
   assert.equal(result.training.preferences.allowJumping, false);

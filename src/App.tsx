@@ -1,4 +1,4 @@
-import { lazy, startTransition, Suspense, type ReactNode, useEffect, useMemo, useState } from 'react';
+import { lazy, startTransition, Suspense, type ReactNode, useCallback, useEffect, useMemo, useState } from 'react';
 import { AddCaloriesSheet } from './components/AddCaloriesSheet';
 import { BottomNav } from './components/BottomNav';
 import { ConfirmDialog } from './components/ConfirmDialog';
@@ -16,12 +16,14 @@ import {
   saveProfile,
   saveSettings,
   saveTraining,
+  saveActivity,
   saveWeightEntry,
   updateCalorieEntry
 } from './services/storage';
 import type {
   AppData,
   AppPage,
+  AppleHealthData,
   CalorieEntry,
   ImportPreview,
   UserProfile,
@@ -40,6 +42,7 @@ import { SettingsPage } from './pages/SettingsPage';
 import { TodayPage } from './pages/TodayPage';
 import { TrainingPage } from './pages/TrainingPage';
 import { buildTrainingWeek, getWeekStart } from './utils/training';
+import { useAppleHealth } from './hooks/useAppleHealth';
 
 const MealScannerSheet = lazy(() => import('./components/MealScannerSheet'));
 
@@ -66,6 +69,7 @@ function getPageFromHash(): AppPage {
   }
 
   const rawHash = window.location.hash.replace(/^#\/?/, '');
+  if (rawHash === 'activity') return 'training';
 
   if (
     rawHash === 'today' ||
@@ -81,7 +85,7 @@ function getPageFromHash(): AppPage {
 }
 
 function setHashPage(page: AppPage) {
-  window.location.hash = `/${page}`;
+  window.location.hash = `/${page === 'training' ? 'activity' : page}`;
 }
 
 function downloadBackup(serializedData: string, dateKey: string) {
@@ -96,6 +100,10 @@ function downloadBackup(serializedData: string, dateKey: string) {
 
 export default function App() {
   const [appData, setAppData] = useState<AppData>(() => getAppData());
+  const handleActivityChange = useCallback((activity: AppleHealthData) => {
+    setAppData(saveActivity(activity));
+  }, []);
+  const health = useAppleHealth(appData.activity, handleActivityChange);
   const [activePage, setActivePage] = useState<AppPage>(() => getPageFromHash());
   const [statusMessage, setStatusMessage] = useState('');
   const [isOnline, setIsOnline] = useState(() => navigator.onLine);
@@ -475,9 +483,19 @@ export default function App() {
     setStatusMessage(`Theme set to ${theme}.`);
   }
 
-  function handleExport() {
-    downloadBackup(exportData(), todayDate);
-    setStatusMessage('Backup downloaded.');
+  async function handleExport() {
+    try {
+      const nativeExport = (window as Window & { webkit?: { messageHandlers?: { exportBackup?: { postMessage: (body: unknown) => Promise<unknown> } } } }).webkit?.messageHandlers?.exportBackup;
+      if (nativeExport) {
+        await nativeExport.postMessage({ data: exportData(), date: todayDate });
+        setStatusMessage('Choose where to save your backup.');
+      } else {
+        downloadBackup(exportData(), todayDate);
+        setStatusMessage('Backup downloaded.');
+      }
+    } catch {
+      setStatusMessage('Your backup could not be exported. Please try again.');
+    }
   }
 
   function handleReset() {
@@ -492,6 +510,7 @@ export default function App() {
       confirmLabel: 'Reset Everything',
       tone: 'danger',
       onConfirm: () => {
+        health.disconnect();
         const nextData = resetData();
         setAppData(nextData);
         setConfirmState(null);
@@ -550,7 +569,7 @@ export default function App() {
           ) : null}
 
           {activePage === 'training' ? (
-            <TrainingPage key={todayDate} data={appData.training} today={todayDate} onChange={(training, message) => {
+            <TrainingPage key={todayDate} data={appData.training} activity={appData.activity} health={health} unitSystem={profile.unitSystem} today={todayDate} onChange={(training, message) => {
               setAppData(saveTraining(training));
               setStatusMessage(message);
             }} />

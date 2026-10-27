@@ -7,7 +7,8 @@ CalorieTrack is a mobile-first Progressive Web App for simple daily calorie and 
 - First-run onboarding that estimates maintenance calories and a daily target using the Mifflin-St Jeor equation.
 - Today dashboard with calorie remaining, manual entry, online USDA food search, a daily football workout, and weight summary.
 - Food search works immediately with USDA public access, scales calories by grams or millilitres, and caches recent searches for offline reuse.
-- Training tab with match scheduling, daily readiness, workout logging, kettlebell strength, ball skills, speed/jump foundations, and low-impact endurance.
+- Football training in the Activity tab, with match scheduling, daily readiness, workout logging, kettlebell strength, ball skills, speed/jump foundations, and low-impact endurance.
+- Activity tab with an Apple Health daily summary and recorded workouts in the optional [iPhone app](ios/README.md). Automatic HealthKit sync requires the native iPhone app; it is unavailable in browsers.
 - Weight logging with same-day updates, progress calculations, trend chart, and estimated goal-date logic when enough data exists.
 - History view for previous days with calorie totals, weigh-ins, and editing support.
 - Settings for profile, goal target, custom calorie target, theme, backup import/export, and reset.
@@ -93,7 +94,7 @@ The app uses a manifest, generated icons, theme metadata, and a service worker s
 - Food queries are sent to USDA (or your configured search Worker). Training data stays on your device. Up to 30 food searches are cached locally for seven days; these disposable results are not included in backups.
 - No account, cloud sync, database, Supabase, Firebase, or backend is required for normal tracking.
 - Export creates a JSON backup download such as `calorietrack-backup-YYYY-MM-DD.json`.
-- Import validates the backup structure before replacing local data. Version 1 backups automatically gain conservative training defaults; version 2 backups include all training data.
+- Import validates the backup structure before replacing local data. Older backups gain conservative training and empty activity defaults; version 3 backups include training and cached Apple Health summaries. Import leaves Health sync disabled until you reconnect on the device.
 - Reset clears all local app data from the current device.
 
 ## AI meal scanner architecture
@@ -157,7 +158,7 @@ For GitHub Pages, set the repository Actions **variable** `VITE_USDA_FOOD_SEARCH
 
 ## Football training
 
-Open **Training** (also linked from Today). The plan is a transparent local rules-based guide, not an AI service or a medical return-to-play assessment.
+Open **Activity** (also linked from Today). The football plan is below the Apple Health summary. The plan is a transparent local rules-based guide, not an AI service or a medical return-to-play assessment.
 
 - Defaults reflect the current equipment: **15 lb and 20 lb kettlebells**, returning-to-training volume, running and jumping disabled, a 60-minute weekly running ceiling, and at most two impact days. The ceiling is an editable planning constraint, not a recommended dose of running.
 - Update preferences to choose your level, available bells, running ceiling and impact settings. Running requires explicit enablement and a pain-free check-in on the day; jumping requires an additional opt-in. Shin symptoms pause impact and swap the session for gentle recovery. Endurance uses cycling/swimming or pain-free walking, with seated movement as an alternative.

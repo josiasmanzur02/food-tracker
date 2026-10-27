@@ -2,6 +2,7 @@ import type {
   ActivityLevelId,
   AppData,
   AppSettings,
+  AppleHealthData,
   CalorieEntry,
   DetectedFood,
   ImportPreview,
@@ -12,9 +13,10 @@ import type {
   WeightEntry
 } from '../types';
 import { createTrainingData, normalizeTraining } from './trainingStorage';
+import { createAppleHealthData, normalizeAppleHealth } from './appleHealth';
 
 const STORAGE_KEY = 'calorietrack.appdata';
-const DATA_VERSION = 2;
+const DATA_VERSION = 3;
 
 export const DEFAULT_SETTINGS: AppSettings = {
   theme: 'system'
@@ -81,7 +83,8 @@ export function createEmptyAppData(): AppData {
     settings: DEFAULT_SETTINGS,
     calorieEntries: [],
     weightEntries: [],
-    training: createTrainingData()
+    training: createTrainingData(),
+    activity: createAppleHealthData()
   };
 }
 
@@ -296,7 +299,8 @@ export function migrateData(value: unknown): AppData {
     settings: normalizeSettings(value.settings),
     calorieEntries: sortCalorieEntries(calorieEntries),
     weightEntries: dedupeWeightEntries(weightEntries),
-    training: normalizeTraining(value.training)
+    training: normalizeTraining(value.training),
+    activity: normalizeAppleHealth(value.activity)
   };
 }
 
@@ -358,6 +362,10 @@ export function saveSettings(settings: AppSettings): AppData {
 
 export function saveTraining(training: TrainingData): AppData {
   return updateAppData((data) => ({ ...data, training }));
+}
+
+export function saveActivity(activity: AppleHealthData): AppData {
+  return updateAppData((data) => ({ ...data, activity }));
 }
 
 export function getDailyEntries(date: string): CalorieEntry[] {
@@ -518,7 +526,7 @@ export function parseImportData(fileContents: string): ImportPreview {
 }
 
 export function importData(nextData: AppData): AppData {
-  return saveAppData(nextData);
+  return saveAppData({ ...nextData, activity: { ...nextData.activity, syncEnabled: false } });
 }
 
 export function resetData(): AppData {

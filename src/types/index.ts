@@ -112,6 +112,46 @@ export interface AppData {
   calorieEntries: CalorieEntry[];
   weightEntries: WeightEntry[];
   training: TrainingData;
+  activity: AppleHealthData;
+}
+
+export interface ActivityDay {
+  date: string;
+  steps: number | null;
+  activeEnergyKcal: number | null;
+  moveMinutes: number | null;
+  moveMode: 'energy' | 'time';
+  exerciseMinutes: number | null;
+  standMinutes: number | null;
+  standHours: number | null;
+  moveGoal: number | null;
+  exerciseGoalMinutes: number | null;
+  standGoalHours: number | null;
+}
+
+export interface HealthWorkout {
+  id: string;
+  date: string;
+  activity: string;
+  name: string;
+  start: string;
+  end: string;
+  minutes: number;
+  distanceMeters: number | null;
+  activeEnergyKcal: number | null;
+}
+
+export interface HealthSnapshot {
+  startDate: string;
+  endDate: string;
+  syncedAt: string;
+  days: ActivityDay[];
+  workouts: HealthWorkout[];
+}
+
+export interface AppleHealthData {
+  syncEnabled: boolean;
+  snapshot: HealthSnapshot | null;
 }
 
 export interface ImportPreview {
