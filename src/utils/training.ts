@@ -1,31 +1,30 @@
 import type {
+  HealthSnapshot,
   SessionKind,
   TrainingData,
   TrainingDrill,
   TrainingSession
 } from '../types';
-import { addDays, differenceInDays, parseDateKey } from './dates';
+import { addDays, differenceInDays, getDateKey, parseDateKey } from './dates';
+import { getTrainingActivity, getTrainingWeekLoad, healthDaySession, isStrength } from './trainingActivity';
 
 export function getWeekStart(date: string): string {
   return addDays(date, -((parseDateKey(date).getDay() + 6) % 7));
 }
 
-export function getTrainingProgress(data: TrainingData, date: string) {
-  const recent = data.logs.filter(
-    (l) =>
-      l.status === 'completed' &&
-      l.date < date &&
-      l.date >= addDays(date, -14) &&
-      l.session.kind !== 'rest'
+export function getTrainingProgress(data: TrainingData, date: string, snapshot?: HealthSnapshot | null, today = getDateKey()) {
+  const recent = getTrainingActivity(data, snapshot, today).sessions.filter(
+    (session) => session.date < date && session.date >= addDays(date, -14) &&
+      session.manualLog?.session.kind !== 'rest'
   );
-  const work = recent.filter((l) =>
-    ['strengthA', 'strengthB', 'endurance'].includes(l.session.kind)
-  );
+  // Progression requires the user's own effort feedback. Imported duration never proves readiness.
+  const feedback = recent.flatMap((session) => session.manualLog ? [session.manualLog] : []);
+  const work = feedback.filter((log) => isStrength(log.session.kind) || log.session.kind === 'endurance');
   const effort = work.length
     ? work.reduce((sum, l) => sum + l.effort, 0) / work.length
     : 0;
-  const pain = recent.some((l) => l.shinPain !== 'none');
-  const lastHard = recent.some(
+  const pain = feedback.some((l) => l.shinPain !== 'none');
+  const lastHard = feedback.some(
     (l) => l.date >= addDays(date, -2) && l.effort >= 8
   );
   const mode =
@@ -38,6 +37,7 @@ export function getTrainingProgress(data: TrainingData, date: string) {
     completed: recent.length,
     minutes: recent.reduce((sum, l) => sum + l.minutes, 0),
     effort,
+    syncedWorkouts: recent.reduce((sum, session) => sum + session.healthWorkouts.length, 0),
     mode,
     message:
       mode === 'ease'
@@ -58,9 +58,11 @@ function createSession(
   kind: SessionKind,
   date: string,
   data: TrainingData,
-  options: { run: boolean; jump: boolean; reason: string; easy: boolean }
+  options: { run: boolean; jump: boolean; reason: string; easy: boolean },
+  snapshot?: HealthSnapshot | null,
+  today = getDateKey()
 ): TrainingSession {
-  const progress = getTrainingProgress(data, date);
+  const progress = getTrainingProgress(data, date, snapshot, today);
   const regular = data.preferences.level === 'regular';
   const sets = options.easy || progress.mode === 'ease' ? 1 : regular ? 3 : 2;
   const reps = progress.mode === 'build' ? 9 : 8;
@@ -267,8 +269,10 @@ function createSession(
 export function buildTrainingWeek(
   data: TrainingData,
   weekStart: string,
-  today: string
+  today: string,
+  snapshot?: HealthSnapshot | null
 ): TrainingSession[] {
+  const load = getTrainingWeekLoad(data, weekStart, today, snapshot);
   const end = addDays(weekStart, 6);
   const weekMatches = data.matches.filter(
     (m) => m.date >= weekStart && m.date <= end
@@ -290,43 +294,18 @@ export function buildTrainingWeek(
   const matchDates = [
     ...new Set([
       ...activeMatches.map((m) => m.date),
-      ...data.logs
-        .filter((l) => l.status === 'completed' && l.session.kind === 'match')
-        .map((l) => l.date)
+      ...load.activity.sessions.filter((session) => session.match).map((session) => session.date)
     ])
   ];
   // Reserve match minutes first, including late-week fixtures, before allocating extra impact.
-  let runUsed =
-    logs
-      .filter((l) => l.status === 'completed')
-      .reduce((sum, l) => sum + l.runningMinutes, 0) +
-    weekMatches
-      .filter(
-        (m) =>
-          !logs.some((l) => l.date === m.date && l.session.kind === 'match')
-      )
-      .reduce((sum, m) => sum + m.plannedMinutes, 0);
-  const impactDates = new Set([
-    ...logs
-      .filter(
-        (l) =>
-          l.status === 'completed' && (l.session.impact || l.runningMinutes > 0)
-      )
-      .map((l) => l.date),
-    ...weekMatches
-      .filter(
-        (m) =>
-          !logs.some((l) => l.date === m.date && l.session.kind === 'match')
-      )
-      .map((m) => m.date)
-  ]);
+  let runUsed = load.runningMinutes + load.reservedRunningMinutes;
+  const impactDates = new Set(load.impactDates);
   let strengths = 0;
-  let lastStrength = data.logs
+  let lastStrength = load.activity.sessions
     .filter(
       (l) =>
-        l.status === 'completed' &&
         l.date < weekStart &&
-        ['strengthA', 'strengthB'].includes(l.session.kind)
+        l.strength
     )
     .sort((a, b) => b.date.localeCompare(a.date))[0]?.date;
   let endurance = 0;
@@ -334,18 +313,28 @@ export function buildTrainingWeek(
   for (let i = 0; i < 7; i++) {
     const date = addDays(weekStart, i);
     const dayLogs = logs.filter((l) => l.date === date);
-    for (const recorded of dayLogs.filter((l) => l.status === 'completed')) {
-      if (['strengthA', 'strengthB'].includes(recorded.session.kind)) {
-        strengths++;
-        lastStrength = date;
-      }
-      if (recorded.session.kind === 'endurance') endurance++;
+    const completed = load.completed.filter((session) => session.date === date);
+    // Multiple walks or strength records on one day use one weekly session slot.
+    if (completed.some((session) => session.strength)) {
+      strengths++;
+      lastStrength = date;
     }
+    if (completed.some((session) => session.endurance)) endurance++;
+    const healthOnly = completed.filter((session) => !session.manualLog);
     const log = weekMatches.some((m) => m.date === date)
       ? dayLogs.find((l) => l.session.kind === 'match')
-      : dayLogs[0];
-    if (log) {
+      : dayLogs.find((entry) => entry.status === 'completed') ?? dayLogs[0];
+    // Actual Health football takes precedence over an unplayed fixture or a skipped log.
+    if (healthOnly.some((session) => session.match) && log?.status !== 'completed') {
+      sessions.push(healthDaySession(date, healthOnly));
+      continue;
+    }
+    if (log && (log.status === 'completed' || !healthOnly.length)) {
       sessions.push(log.session); // Preserve the exact completed/skipped workout after replanning.
+      continue;
+    }
+    if (healthOnly.length && !weekMatches.some((match) => match.date === date)) {
+      sessions.push(healthDaySession(date, healthOnly));
       continue;
     }
     if (date < today && !weekMatches.some((m) => m.date === date)) {
@@ -448,12 +437,8 @@ export function buildTrainingWeek(
     }
     const adjacentImpact = [
       ...impactDates,
-      ...data.logs
-        .filter(
-          (l) =>
-            l.status === 'completed' &&
-            (l.session.impact || l.runningMinutes > 0)
-        )
+      ...load.activity.sessions
+        .filter((session) => session.impact)
         .map((l) => l.date)
     ].some((d) => Math.abs(differenceInDays(d, date)) <= 1);
     const canImpact =
@@ -482,8 +467,8 @@ export function buildTrainingWeek(
       run,
       jump,
       reason,
-      easy: getTrainingProgress(data, date).mode === 'ease'
-    });
+      easy: getTrainingProgress(data, date, snapshot, today).mode === 'ease'
+    }, snapshot, today);
     sessions.push(session);
     // Missed days do not consume this week’s remaining sessions or create make-up workouts.
     if (date >= today) {

@@ -22,6 +22,7 @@ import {
   getTrainingProgress,
   getWeekStart
 } from '../utils/training';
+import { getTrainingWeekLoad, isStrength } from '../utils/trainingActivity';
 
 interface TrainingPageProps {
   data: TrainingData;
@@ -101,7 +102,8 @@ export function TrainingPage({ data, today, onChange, activity, health, unitSyst
   } | null>(null);
   const [logging, setLogging] = useState<TrainingSession | null>(null);
   const end = addDays(weekStart, 6);
-  const sessions = buildTrainingWeek(data, weekStart, today);
+  const sessions = buildTrainingWeek(data, weekStart, today, activity.snapshot);
+  const load = getTrainingWeekLoad(data, weekStart, today, activity.snapshot);
   const selected = sessions.find((s) => s.date === selectedDate) ?? sessions[0];
   const matches = data.matches.filter(
     (m) => m.date >= weekStart && m.date <= end
@@ -112,46 +114,29 @@ export function TrainingPage({ data, today, onChange, activity, health, unitSyst
     (l) => l.date >= weekStart && l.date <= end
   );
   const logFor = (session: TrainingSession) =>
-    weekLogs.find(
+    session.source === 'appleHealth' ? undefined : weekLogs.find(
       (l) =>
         l.date === session.date &&
         (l.session.kind === 'match') === (session.kind === 'match')
     );
   const selectedLog = logFor(selected);
-  const progress = getTrainingProgress(data, addDays(today, 1));
-  const running = weekLogs
-    .filter((l) => l.status === 'completed')
-    .reduce((sum, l) => sum + l.runningMinutes, 0);
-  const unloggedMatchMinutes = matches
-    .filter(
-      (m) =>
-        m.date < today &&
-        !weekLogs.some((l) => l.date === m.date && l.session.kind === 'match')
-    )
+  const progress = getTrainingProgress(data, addDays(today, 1), activity.snapshot, today);
+  const running = load.runningMinutes;
+  const unloggedMatchMinutes = load.reservedMatches
+    .filter((m) => m.date < today)
     .reduce((sum, m) => sum + m.plannedMinutes, 0);
   const plannedRunning =
     sessions
-      .filter((s) => s.date >= today && !logFor(s))
+      .filter((s) => s.date >= today && s.source !== 'appleHealth' && !logFor(s))
       .reduce((sum, s) => sum + s.runningMinutes, 0) + unloggedMatchMinutes;
   const impactDays = new Set([
-    ...weekLogs
-      .filter(
-        (l) =>
-          l.status === 'completed' && (l.session.impact || l.runningMinutes > 0)
-      )
-      .map((l) => l.date),
+    ...load.impactDates,
     ...sessions
-      .filter((s) => s.date >= today && s.impact && !logFor(s))
+      .filter((s) => s.date >= today && s.source !== 'appleHealth' && s.impact && !logFor(s))
       .map((s) => s.date),
-    ...matches
-      .filter(
-        (m) =>
-          !weekLogs.some((l) => l.date === m.date && l.session.kind === 'match')
-      )
-      .map((m) => m.date)
   ]).size;
   const strengthCount = sessions.filter(
-    (s) => s.kind === 'strengthA' || s.kind === 'strengthB'
+    (s) => isStrength(s.kind)
   ).length;
   const unknown = matches.length === 0 && weekStatus === 'unknown';
 
@@ -171,7 +156,11 @@ export function TrainingPage({ data, today, onChange, activity, health, unitSyst
               (l.session.kind === 'match') !== (log.session.kind === 'match')
           ),
           log
-        ]
+        ],
+        healthLinks: logging?.healthWorkoutIds?.length ? [
+          ...data.healthLinks.filter((link) => !logging.healthWorkoutIds!.includes(link.workoutId)),
+          ...logging.healthWorkoutIds.map((workoutId) => ({ workoutId, logId: log.id }))
+        ] : data.healthLinks
       },
       'Session saved. Upcoming workouts updated.'
     );
@@ -207,7 +196,8 @@ export function TrainingPage({ data, today, onChange, activity, health, unitSyst
           </button>
         }
       />
-      <ActivitySummary data={activity} health={health} today={today} unitSystem={unitSystem} />
+      <ActivitySummary data={activity} health={health} today={today} unitSystem={unitSystem}
+        training={data} trainingActivity={load.activity} onTrainingChange={onChange} />
       <section className="training-intro card">
         <div>
           <span className="pill">Shin-aware plan</span>
@@ -364,7 +354,7 @@ export function TrainingPage({ data, today, onChange, activity, health, unitSyst
         <div>
           <p className="section-label">Running & playing time</p>
           <p>
-            <strong>{running} min logged</strong> + {plannedRunning} min
+            <strong>{Math.round(running)} min completed</strong> + {Math.round(plannedRunning)} min
             reserved
           </p>
         </div>
@@ -376,6 +366,10 @@ export function TrainingPage({ data, today, onChange, activity, health, unitSyst
             ? 'Your fixtures or logged running exceed your ceiling. Extra running is removed; reduce playing time with your coach if needed.'
             : 'Match minutes are reserved first. Endurance uses low-impact options; your running limit never increases automatically.'}
         </p>
+        {load.activity.healthWorkouts.length > 0 ? <p className="supporting-copy">
+          Apple Health runs and football count toward running and impact limits. Recorded walks count as conditioning;
+          football activates the same recovery rules as a logged match. Paired manual logs count once.
+        </p> : null}
         <p className="sheet-form__hint">
           {unloggedMatchMinutes > 0
             ? `${unloggedMatchMinutes} minutes are held for past, unlogged fixtures. Log or skip those matches to update the budget. `
@@ -395,7 +389,7 @@ export function TrainingPage({ data, today, onChange, activity, health, unitSyst
               key={s.date}
               type="button"
               aria-pressed={s.date === selected.date}
-              aria-label={`${formatDate(s.date)}: ${s.title}${log ? `, ${log.status}` : ''}`}
+              aria-label={`${formatDate(s.date)}: ${s.title}${s.source === 'appleHealth' ? ', completed in Apple Health' : log ? `, ${log.status}` : ''}`}
               className={`training-day ${s.date === selected.date ? 'training-day--selected' : ''}`}
               onClick={() => setSelectedDate(s.date)}
             >
@@ -405,7 +399,7 @@ export function TrainingPage({ data, today, onChange, activity, health, unitSyst
                 className={`day-indicator day-indicator--${s.kind}`}
                 aria-hidden="true"
               >
-                {log?.status === 'completed'
+                {s.source === 'appleHealth' || log?.status === 'completed'
                   ? '✓'
                   : log?.status === 'skipped'
                     ? '–'
@@ -435,15 +429,15 @@ export function TrainingPage({ data, today, onChange, activity, health, unitSyst
             <h2>{selected.title}</h2>
           </div>
           <span className="pill">
-            {selectedLog ? selectedLog.status : selected.intensity}
+            {selected.source === 'appleHealth' ? 'Completed · Apple Health' : selectedLog ? selectedLog.status : selected.intensity}
           </span>
         </div>
         <div className="inline-actions">
           <span className="pill pill--muted">
-            {selected.minutes ? `About ${selected.minutes} min` : 'Rest day'}
+            {selected.minutes ? `${selected.source === 'appleHealth' ? '' : 'About '}${Math.round(selected.minutes)} min` : 'Rest day'}
           </span>
           <span className="pill pill--muted">
-            {selected.runningMinutes} min running / playing
+            {Math.round(selected.runningMinutes)} min running / playing
           </span>
           <span className="pill pill--muted">
             {selected.impact ? 'Impact day' : 'Low impact'}
@@ -473,7 +467,11 @@ export function TrainingPage({ data, today, onChange, activity, health, unitSyst
         </ol>
         {selected.date <= today && selected.title !== 'No session logged' && (
           <div className="workout-actions">
-            {selectedLog ? (
+            {selected.source === 'appleHealth' ? (
+              <button type="button" className="button button--secondary" onClick={() => setLogging(selected)}>
+                Add effort & shin feedback
+              </button>
+            ) : selectedLog ? (
               <>
                 <p className="supporting-copy">
                   {selectedLog.status === 'completed'
@@ -538,7 +536,7 @@ export function TrainingPage({ data, today, onChange, activity, health, unitSyst
               <span>{formatDate(s.date, { weekday: 'short' })}</span>
               <strong>{s.title}</strong>
               <span>
-                {logFor(s)?.status === 'completed' ? '✓' : `${s.minutes}m`}
+                {s.source === 'appleHealth' || logFor(s)?.status === 'completed' ? '✓' : `${s.minutes}m`}
               </span>
             </button>
           ))}
@@ -552,17 +550,17 @@ export function TrainingPage({ data, today, onChange, activity, health, unitSyst
         <div className="training-stats">
           <div>
             <strong>{progress.completed}</strong>
-            <span>sessions logged</span>
+            <span>completed sessions, including Apple Health</span>
           </div>
           <div>
-            <strong>{progress.minutes}</strong>
+            <strong>{Math.round(progress.minutes)}</strong>
             <span>minutes trained</span>
           </div>
           <div>
             <strong>
               {progress.effort ? progress.effort.toFixed(1) : '—'}
             </strong>
-            <span>average work effort / 10</span>
+            <span>average manual work effort / 10</span>
           </div>
         </div>
         <p className="supporting-copy">{progress.message}</p>
@@ -613,6 +611,12 @@ export function TrainingPage({ data, today, onChange, activity, health, unitSyst
             loss alone never unlocks more running. Progress adds a controlled
             strength rep after consistent, manageable sessions; high effort or
             pain reduces workload.
+          </p>
+          <p className="supporting-copy">
+            Synced workouts update the plan automatically. Runs use your running budget and impact-day spacing;
+            football adds match recovery; walks and other conditioning, and recorded strength sessions, count toward the week.
+            Daily steps, Move calories and standing time never imply an effort rating or unlock extra running.
+            Your check-ins and manual effort and shin feedback still control readiness and progression.
           </p>
           <p className="supporting-copy">
             Shin pain pauses running and jumps. Stop activities that hurt; seek

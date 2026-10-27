@@ -84,7 +84,11 @@ export function TodayPage({
       ) : null}
 
       <section className="card today-training">
-        <div><p className="section-label">Your football plan</p><h2>{trainingSession.title}</h2><p className="supporting-copy">{trainingSession.minutes ? `${trainingSession.minutes} min · ` : ''}{trainingSession.impact ? 'Check your readiness before impact' : 'Low impact'} · Adjusts around match night</p></div>
+        <div><p className="section-label">Your football plan</p><h2>{trainingSession.title}</h2><p className="supporting-copy">
+          {trainingSession.minutes ? `${Math.round(trainingSession.minutes)} min · ` : ''}
+          {trainingSession.source === 'appleHealth' ? 'Completed in Apple Health · Plan updated'
+            : `${trainingSession.impact ? 'Check your readiness before impact' : 'Low impact'} · Adjusts around match night`}
+        </p></div>
         <button type="button" className="button button--secondary" onClick={onOpenTraining}>View activity</button>
       </section>
 

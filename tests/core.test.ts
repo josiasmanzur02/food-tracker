@@ -9,6 +9,7 @@ import {
   getTrainingProgress,
   getWeekStart
 } from '../src/utils/training';
+import { getTrainingActivity, getTrainingWeekLoad } from '../src/utils/trainingActivity';
 import { addDays } from '../src/utils/dates';
 import { createEmptyAppData, migrateData, saveActivity, getAppData, exportData, importData, resetData } from '../src/services/storage';
 import { createAppleHealthData, normalizeAppleHealth, parseHealthSnapshot, readAppleHealth, requestAppleHealthAccess, supportsAppleHealth } from '../src/services/appleHealth';
@@ -18,7 +19,7 @@ import {
 } from '../src/services/foodNutrition';
 import { searchUsdaFoods } from '../src/services/usdaFoodSearch';
 import worker from '../worker/src/index.js';
-import type { ActivityDay, HealthSnapshot, TrainingData, TrainingSession, WorkoutLog } from '../src/types';
+import type { ActivityDay, HealthSnapshot, HealthWorkout, TrainingData, TrainingSession, WorkoutLog } from '../src/types';
 
 const monday = '2026-10-19';
 function healthSnapshot(): HealthSnapshot {
@@ -151,6 +152,263 @@ function completed(
     ...extra
   };
 }
+
+function syncedWorkout(date: string, activity: string, minutes: number, id = `${date}-${activity}`): HealthWorkout {
+  const start = `${date}T10:00:00Z`;
+  return { id, date, activity, name: activity, start,
+    end: new Date(Date.parse(start) + minutes * 60000).toISOString(), minutes,
+    distanceMeters: null, activeEnergyKcal: null };
+}
+function syncedActivity(workouts: HealthWorkout[], today = monday): HealthSnapshot {
+  return { startDate: addDays(today, -29), endDate: today, syncedAt: `${today}T23:59:59Z`, days: [], workouts };
+}
+
+test('synced runs consume running and impact limits without rewriting manual history or settings', () => {
+  const data = noMatch();
+  const today = addDays(monday, 2);
+  data.preferences.allowRunning = true;
+  data.preferences.allowJumping = true;
+  data.checkIns = [{ date: today, energy: 'fresh', shinPain: 'none' }];
+  const original = JSON.stringify(data);
+  const snapshot = syncedActivity([syncedWorkout(monday, 'running', 60)], today);
+  const week = buildTrainingWeek(data, monday, today, snapshot);
+  assert.equal(week[0].source, 'appleHealth');
+  assert.equal(week[0].runningMinutes, 60);
+  assert.ok(week.slice(2).every((session) => !session.impact && session.runningMinutes === 0));
+  const load = getTrainingWeekLoad(data, monday, today, snapshot);
+  assert.equal(load.runningMinutes, 60);
+  assert.equal(load.impactDates.size, 1);
+  assert.equal(JSON.stringify(data), original);
+});
+
+test('a synced run prevents adjacent impact and respects a one-day weekly impact ceiling', () => {
+  const data = noMatch();
+  data.preferences.allowRunning = true;
+  data.preferences.allowJumping = true;
+  const today = addDays(monday, 2);
+  data.checkIns = [{ date: today, energy: 'fresh', shinPain: 'none' }];
+  const snapshot = syncedActivity([syncedWorkout(addDays(monday, 1), 'running', 15)], today);
+  assert.equal(buildTrainingWeek(data, monday, today, snapshot)[2].impact, false);
+  data.preferences.maxImpactDays = 1;
+  assert.ok(buildTrainingWeek(data, monday, today, snapshot).slice(2).every((session) => !session.impact));
+});
+
+test('football recorded only in Health triggers recovery across the week boundary', () => {
+  const data = noMatch();
+  const snapshot = syncedActivity([syncedWorkout(addDays(monday, -1), 'soccer', 60)]);
+  const week = buildTrainingWeek(data, monday, monday, snapshot);
+  assert.equal(week[0].kind, 'recovery');
+  assert.equal(week[1].kind, 'recovery');
+  assert.equal(data.matches.length, 0);
+  assert.equal(data.logs.length, 0);
+});
+
+test('a recorded football workout does not declare the rest of an unknown fixture week clear', () => {
+  const data = createTrainingData();
+  const snapshot = syncedActivity([syncedWorkout(monday, 'soccer', 60)]);
+  const week = buildTrainingWeek(data, monday, monday, snapshot);
+  assert.equal(week[1].kind, 'recovery');
+  assert.equal(week[2].kind, 'recovery');
+  assert.ok(week.slice(3).every((session) => ['skills', 'primer', 'rest'].includes(session.kind)));
+});
+
+test('actual Health football replaces fixture reservations and overrides a skipped match for load', () => {
+  const data = noMatch();
+  fixture(data, monday, 90);
+  const scheduled = buildTrainingWeek(data, monday, monday)[0];
+  data.logs = [completed(scheduled, { status: 'skipped', minutes: 0, runningMinutes: 0 })];
+  const snapshot = syncedActivity([syncedWorkout(monday, 'soccer', 40)]);
+  const load = getTrainingWeekLoad(data, monday, monday, snapshot);
+  assert.equal(load.runningMinutes, 40);
+  assert.equal(load.reservedRunningMinutes, 0);
+  assert.equal(load.impactDates.size, 1);
+  const week = buildTrainingWeek(data, monday, monday, snapshot);
+  assert.equal(week[0].source, 'appleHealth');
+  assert.equal(week[0].minutes, 40);
+  assert.equal(week[1].kind, 'recovery');
+  assert.equal(week[2].kind, 'recovery');
+  assert.equal(data.logs[0].status, 'skipped');
+});
+
+test('a recorded walk cannot complete a scheduled football fixture', () => {
+  const data = noMatch();
+  fixture(data, monday, 90);
+  const snapshot = syncedActivity([syncedWorkout(monday, 'walking', 30)]);
+  const session = buildTrainingWeek(data, monday, monday, snapshot)[0];
+  assert.equal(session.kind, 'match');
+  assert.equal(session.source, undefined);
+  const load = getTrainingWeekLoad(data, monday, monday, snapshot);
+  assert.equal(load.runningMinutes, 0);
+  assert.equal(load.reservedRunningMinutes, 90);
+});
+
+test('Health walks count as conditioning and do not create catch-up training or running load', () => {
+  const data = noMatch();
+  const today = addDays(monday, 3);
+  const snapshot = syncedActivity([
+    syncedWorkout(monday, 'walking', 30),
+    syncedWorkout(addDays(monday, 2), 'walking', 25)
+  ], today);
+  const week = buildTrainingWeek(data, monday, today, snapshot);
+  assert.equal(week[0].kind, 'endurance');
+  assert.equal(week[0].source, 'appleHealth');
+  assert.equal(week[2].source, 'appleHealth');
+  assert.ok(week.slice(3).every((session) => session.kind !== 'endurance'));
+  assert.equal(getTrainingWeekLoad(data, monday, today, snapshot).runningMinutes, 0);
+});
+
+test('synced strength counts toward weekly slots and spacing without inventing kettlebell drills', () => {
+  const data = noMatch();
+  const today = addDays(monday, 3);
+  const snapshot = syncedActivity([
+    syncedWorkout(monday, 'traditionalStrengthTraining', 35),
+    syncedWorkout(addDays(monday, 2), 'functionalStrengthTraining', 35)
+  ], today);
+  const week = buildTrainingWeek(data, monday, today, snapshot);
+  assert.equal(week[0].kind, 'strength');
+  assert.deepEqual(week[0].drills, []);
+  assert.ok(week.slice(3).every((session) => !session.kind.startsWith('strength')));
+  const spaced = buildTrainingWeek(data, monday, addDays(monday, 1), syncedActivity([snapshot.workouts[0]], addDays(monday, 1)));
+  assert.ok(!spaced[1].kind.startsWith('strength'));
+});
+
+test('multiple recorded workouts retain all minutes and use one impact day', () => {
+  const data = noMatch();
+  const snapshot = syncedActivity([syncedWorkout(monday, 'running', 15), syncedWorkout(monday, 'walking', 30)]);
+  const load = getTrainingWeekLoad(data, monday, monday, snapshot);
+  assert.equal(load.runningMinutes, 15);
+  assert.equal(load.impactDates.size, 1);
+  const session = buildTrainingWeek(data, monday, monday, snapshot)[0];
+  assert.equal(session.minutes, 45);
+  assert.equal(session.runningMinutes, 15);
+  assert.equal(session.healthWorkoutIds?.length, 2);
+});
+
+test('steps, ring calories, Exercise and standing totals alone never change training', () => {
+  const data = noMatch();
+  const snapshot = { ...healthSnapshot(), workouts: [], days: [{ ...healthSnapshot().days[0],
+    steps: 45000, activeEnergyKcal: 2000, exerciseMinutes: 240, standMinutes: 600, standHours: 20 }] };
+  assert.deepEqual(buildTrainingWeek(data, monday, monday, snapshot), buildTrainingWeek(data, monday, monday));
+});
+
+test('unknown Health effort cannot trigger progression or override pain check-ins', () => {
+  const data = noMatch();
+  const workouts = [-12, -9, -6, -3].map((offset) => syncedWorkout(addDays(monday, offset), 'traditionalStrengthTraining', 35));
+  const snapshot = syncedActivity(workouts);
+  const progress = getTrainingProgress(data, monday, snapshot, monday);
+  assert.equal(progress.completed, 4);
+  assert.equal(progress.minutes, 140);
+  assert.equal(progress.mode, 'steady');
+  assert.equal(progress.effort, 0);
+  data.checkIns = [{ date: monday, energy: 'fresh', shinPain: 'mild' }];
+  assert.equal(buildTrainingWeek(data, monday, monday, snapshot)[0].kind, 'recovery');
+});
+
+test('matching manual and Health workouts count once and preserve the saved session and feedback', () => {
+  const data = noMatch();
+  const session: TrainingSession = { ...buildTrainingWeek(data, monday, monday)[0],
+    kind: 'endurance', title: 'My walk', minutes: 30, runningMinutes: 0, impact: false };
+  const log = completed(session, { minutes: 30, effort: 9, shinPain: 'mild' });
+  data.logs = [log];
+  const snapshot = syncedActivity([syncedWorkout(monday, 'walking', 32)]);
+  const load = getTrainingActivity(data, snapshot, monday);
+  assert.equal(load.sessions.length, 1);
+  assert.equal(load.sessions[0].minutes, 32);
+  assert.equal(load.healthWorkouts[0].logId, log.id);
+  assert.deepEqual(buildTrainingWeek(data, monday, monday, snapshot)[0], session);
+  assert.equal(getTrainingProgress(data, addDays(monday, 1), snapshot, monday).mode, 'ease');
+  assert.equal(getTrainingProgress(data, addDays(monday, 1), snapshot, monday).effort, 9);
+  assert.deepEqual(data.logs[0], log);
+});
+
+test('pairing controls distinguish separate workouts and allow explicit duration mismatches', () => {
+  const data = noMatch();
+  const session: TrainingSession = { ...buildTrainingWeek(data, monday, monday)[0], kind: 'endurance', minutes: 30 };
+  data.logs = [completed(session)];
+  const workout = syncedWorkout(monday, 'walking', 30);
+  const snapshot = syncedActivity([workout]);
+  data.healthLinks = [{ workoutId: workout.id, logId: null }];
+  assert.equal(getTrainingActivity(data, snapshot, monday).sessions.reduce((sum, entry) => sum + entry.minutes, 0), 60);
+  data.logs[0].minutes = 90;
+  data.healthLinks = [{ workoutId: workout.id, logId: data.logs[0].id }];
+  const paired = getTrainingActivity(data, snapshot, monday);
+  assert.equal(paired.sessions.length, 1);
+  assert.equal(paired.sessions[0].minutes, 90);
+  assert.equal(paired.healthWorkouts[0].automatic, false);
+  assert.deepEqual(normalizeTraining(JSON.parse(JSON.stringify(data))).healthLinks, data.healthLinks);
+});
+
+test('automatic pairing is one-to-one and prefers the closer duration among same-day workouts', () => {
+  const data = noMatch();
+  const session: TrainingSession = { ...buildTrainingWeek(data, monday, monday)[0], kind: 'endurance', minutes: 40 };
+  data.logs = [completed(session)];
+  const snapshot = syncedActivity([syncedWorkout(monday, 'walking', 35, 'first'), syncedWorkout(monday, 'walking', 40, 'second')]);
+  const load = getTrainingActivity(data, snapshot, monday);
+  assert.equal(load.sessions.length, 2);
+  assert.equal(load.sessions.reduce((sum, entry) => sum + entry.minutes, 0), 75);
+  assert.equal(load.healthWorkouts.find((entry) => entry.workout.id === 'second')?.logId, data.logs[0].id);
+  assert.equal(load.healthWorkouts.find((entry) => entry.workout.id === 'first')?.logId, null);
+});
+
+test('links to removed Health records cannot block matching a current copy', () => {
+  const data = noMatch();
+  const session: TrainingSession = { ...buildTrainingWeek(data, monday, monday)[0], kind: 'endurance', minutes: 30 };
+  data.logs = [completed(session)];
+  data.healthLinks = [{ workoutId: 'deleted-record', logId: data.logs[0].id }];
+  const snapshot = syncedActivity([syncedWorkout(monday, 'walking', 30, 'current-record')]);
+  const activity = getTrainingActivity(data, snapshot, monday);
+  assert.equal(activity.sessions.length, 1);
+  assert.equal(activity.healthWorkouts[0].logId, data.logs[0].id);
+});
+
+test('a manual match and its Health copy use the larger actual duration, with no fixture reservation', () => {
+  const data = noMatch();
+  fixture(data, monday, 90);
+  data.logs = [completed(buildTrainingWeek(data, monday, monday)[0], { minutes: 45, runningMinutes: 45 })];
+  const snapshot = syncedActivity([syncedWorkout(monday, 'soccer', 50)]);
+  const load = getTrainingWeekLoad(data, monday, monday, snapshot);
+  assert.equal(load.runningMinutes, 50);
+  assert.equal(load.reservedRunningMinutes, 0);
+  assert.equal(load.completed.length, 1);
+});
+
+test('deletions, disconnects and repeated snapshots recompute load without changing saved manual logs', () => {
+  const data = noMatch();
+  const snapshot = syncedActivity([syncedWorkout(addDays(monday, -1), 'soccer', 60)]);
+  assert.deepEqual(getTrainingActivity(data, snapshot, monday), getTrainingActivity(data, snapshot, monday));
+  assert.equal(buildTrainingWeek(data, monday, monday, snapshot)[0].kind, 'recovery');
+  assert.equal(buildTrainingWeek(data, monday, monday, { ...snapshot, workouts: [] })[0].kind, 'strengthA');
+  assert.equal(buildTrainingWeek(data, monday, monday, null)[0].kind, 'strengthA');
+  assert.deepEqual(data.logs, []);
+});
+
+test('duplicate UUIDs, future workouts and unfinished workouts cannot inflate training load', () => {
+  const data = noMatch();
+  const workout = syncedWorkout(monday, 'running', 20);
+  const snapshot = syncedActivity([workout, workout, syncedWorkout(addDays(monday, 1), 'soccer', 60),
+    { ...syncedWorkout(monday, 'soccer', 40), end: `${addDays(monday, 1)}T01:00:00Z` }]);
+  const load = getTrainingWeekLoad(data, monday, monday, snapshot);
+  assert.equal(load.runningMinutes, 20);
+  assert.equal(load.completed.length, 1);
+});
+
+test('feedback for a combined Health day retains exact links through backup and manual-log removal', () => {
+  const data = noMatch();
+  const snapshot = syncedActivity([syncedWorkout(monday, 'walking', 30), syncedWorkout(monday, 'running', 15)]);
+  const day = buildTrainingWeek(data, monday, monday, snapshot)[0];
+  const log = completed(day, { effort: 8, shinPain: 'mild' });
+  data.logs = [log];
+  data.healthLinks = day.healthWorkoutIds!.map((workoutId) => ({ workoutId, logId: log.id }));
+  const restored = normalizeTraining(JSON.parse(JSON.stringify(data)));
+  assert.equal(restored.logs[0].session.source, undefined);
+  const paired = getTrainingWeekLoad(restored, monday, monday, snapshot);
+  assert.equal(paired.completed.length, 1);
+  assert.equal(paired.runningMinutes, 15);
+  assert.equal(paired.completed[0].minutes, 45);
+  restored.logs = [];
+  assert.equal(getTrainingWeekLoad(restored, monday, monday, snapshot).runningMinutes, 15);
+  assert.equal(getTrainingActivity(restored, snapshot, monday).sessions.length, 2);
+});
 
 test('old backups migrate without losing calorie/weight data; training defaults protect shins', () => {
   const empty = createEmptyAppData();

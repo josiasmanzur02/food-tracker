@@ -14,7 +14,8 @@ export function createTrainingData(): TrainingData {
     matches: [],
     weeks: [],
     checkIns: [],
-    logs: []
+    logs: [],
+    healthLinks: []
   };
 }
 
@@ -57,6 +58,7 @@ function byDate<T extends { date: string }>(values: T[]): T[] {
 const kinds = [
   'strengthA',
   'strengthB',
+  'strength',
   'endurance',
   'skills',
   'primer',
@@ -186,6 +188,11 @@ export function normalizeTraining(value: unknown): TrainingData {
           shinPain: pain(c.shinPain)
         }))
     ),
+    healthLinks: [...new Map(items(v.healthLinks)
+      .filter((link) => typeof link.workoutId === 'string' && link.workoutId.length > 0 &&
+        (link.logId === null || typeof link.logId === 'string'))
+      .map((link) => [text(link.workoutId), { workoutId: text(link.workoutId),
+        logId: link.logId === null ? null : text(link.logId) }])).values()],
     logs: [
       ...new Map(
         logs.map((log) => [

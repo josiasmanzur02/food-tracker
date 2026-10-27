@@ -1,13 +1,17 @@
 import { useState } from 'react';
-import type { AppleHealthData, UnitSystem } from '../types';
+import type { AppleHealthData, TrainingData, UnitSystem } from '../types';
 import type { AppleHealthController } from '../hooks/useAppleHealth';
 import { formatDateShort } from '../utils/dates';
+import { canLinkHealthWorkout, type TrainingActivity } from '../utils/trainingActivity';
 
 interface Props {
   data: AppleHealthData;
   health: AppleHealthController;
   today: string;
   unitSystem: UnitSystem;
+  training: TrainingData;
+  trainingActivity: TrainingActivity;
+  onTrainingChange: (data: TrainingData, message: string) => void;
 }
 
 function amount(value: number | null | undefined): string {
@@ -29,7 +33,7 @@ function Metric({ label, value, unit, goal, tone }: {
   );
 }
 
-export function ActivitySummary({ data, health, today, unitSystem }: Props) {
+export function ActivitySummary({ data, health, today, unitSystem, training, trainingActivity, onTrainingChange }: Props) {
   const [date, setDate] = useState(today);
   const snapshot = data.snapshot;
   const day = snapshot?.days.find((item) => item.date === date);
@@ -86,11 +90,38 @@ export function ActivitySummary({ data, health, today, unitSystem }: Props) {
           <h3>{date === today ? 'Today’s' : formatDateShort(date)} workouts</h3>
           {workouts.length === 0 ? <p className="supporting-copy">No Apple Health workouts available for this day.</p> : (
             <ul className="activity-workouts">
-              {workouts.map((workout) => (
-                <li key={workout.id}>
-                  <div><strong>{workout.name}</strong><p className="supporting-copy">
+              {workouts.map((workout) => {
+                const counted = trainingActivity.healthWorkouts.find((entry) => entry.workout.id === workout.id);
+                const override = training.healthLinks.find((link) => link.workoutId === workout.id);
+                const pairedLog = counted?.logId ? training.logs.find((log) => log.id === counted.logId) : undefined;
+                const choices = training.logs.filter((log) => canLinkHealthWorkout(log, workout));
+                return <li key={workout.id}>
+                  <div className="stack stack--tight"><div><strong>{workout.name}</strong><p className="supporting-copy">
                     {new Date(workout.start).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })} · Apple Health
                   </p></div>
+                    {counted ? <p className="sheet-form__hint">
+                      {pairedLog ? `Counted once with “${pairedLog.session.title}”${counted.automatic ? ' (automatic match)' : ''}.`
+                        : 'Included in your training plan.'}
+                    </p> : <p className="sheet-form__hint">Not counted until this workout is complete.</p>}
+                    {counted && (choices.length > 0 || override) ? <label className="field">
+                      <span>Training log for {workout.name}</span>
+                      <select value={override ? override.logId === null ? 'separate' : `log:${override.logId}` : 'auto'}
+                        onChange={(event) => {
+                          const value = event.target.value;
+                          onTrainingChange({ ...training, healthLinks: [
+                            ...training.healthLinks.filter((link) => link.workoutId !== workout.id),
+                            ...(value === 'auto' ? [] : [{ workoutId: workout.id,
+                              logId: value === 'separate' ? null : value.slice(4) }])
+                          ] }, 'Workout pairing updated. Your plan has adapted.');
+                        }}>
+                        <option value="auto">Match automatically</option>
+                        <option value="separate">Count as a separate workout</option>
+                        {choices.map((log) => <option key={log.id} value={`log:${log.id}`}>Same workout: {log.session.title} · {log.minutes} min</option>)}
+                        {override?.logId && !choices.some((log) => log.id === override.logId) ?
+                          <option value={`log:${override.logId}`}>{pairedLog ? `Same workout: ${pairedLog.session.title}` : 'Previous pairing unavailable · counted separately'}</option> : null}
+                      </select>
+                    </label> : null}
+                  </div>
                   <div className="activity-workout-totals">
                     <strong>{amount(workout.minutes)} min</strong>
                     {workout.distanceMeters !== null ? <span>
@@ -98,10 +129,13 @@ export function ActivitySummary({ data, health, today, unitSystem }: Props) {
                     </span> : null}
                     {workout.activeEnergyKcal !== null ? <span>{amount(workout.activeEnergyKcal)} kcal</span> : null}
                   </div>
-                </li>
-              ))}
+                </li>;
+              })}
             </ul>
           )}
+          {workouts.some((workout) => training.logs.some((log) => canLinkHealthWorkout(log, workout))) ?
+            <p className="supporting-copy">Automatic matches use date, workout type and similar duration. Choose “separate”
+              if you did two different workouts. Paired entries use the larger recorded duration and keep your manual feedback.</p> : null}
         </div>
         {snapshot ? <p className="supporting-copy" role="status">Last synced {new Date(snapshot.syncedAt).toLocaleString()}.
           {snapshot.endDate < today ? ' This summary does not include today yet.' : ''}</p> : null}

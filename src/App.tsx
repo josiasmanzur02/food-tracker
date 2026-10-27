@@ -556,7 +556,7 @@ export default function App() {
                 setCalorieEditor({ open: true, date: todayDate, entry: null })
               }
               onOpenMealScanner={() => setFoodSearchOpen(true)}
-              trainingSession={buildTrainingWeek(appData.training, getWeekStart(todayDate), todayDate).find((session) => session.date === todayDate)!}
+              trainingSession={buildTrainingWeek(appData.training, getWeekStart(todayDate), todayDate, appData.activity.snapshot).find((session) => session.date === todayDate)!}
               onOpenTraining={() => navigate('training')}
               onEditEntry={(entry) =>
                 setCalorieEditor({ open: true, date: entry.date, entry })

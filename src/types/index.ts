@@ -163,7 +163,7 @@ export interface ImportPreview {
 }
 
 export type ShinPain = 'none' | 'mild' | 'painful';
-export type SessionKind = 'strengthA' | 'strengthB' | 'endurance' | 'skills' | 'primer' | 'recovery' | 'match' | 'rest';
+export type SessionKind = 'strengthA' | 'strengthB' | 'strength' | 'endurance' | 'skills' | 'primer' | 'recovery' | 'match' | 'rest';
 
 export interface TrainingPreferences {
   level: 'returning' | 'regular';
@@ -204,6 +204,9 @@ export interface TrainingSession {
   intensity: 'easy' | 'moderate' | 'hard';
   reason: string;
   drills: TrainingDrill[];
+  /** Present only on derived sessions, never on saved manual session snapshots. */
+  source?: 'appleHealth';
+  healthWorkoutIds?: string[];
 }
 
 export interface WorkoutLog {
@@ -224,4 +227,6 @@ export interface TrainingData {
   weeks: Array<{ weekStart: string; matchStatus: 'unknown' | 'none' }>;
   checkIns: TrainingCheckIn[];
   logs: WorkoutLog[];
+  /** null explicitly counts a Health workout separately; no entry uses automatic matching. */
+  healthLinks: Array<{ workoutId: string; logId: string | null }>;
 }

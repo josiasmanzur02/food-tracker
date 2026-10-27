@@ -25,7 +25,7 @@ Run `npm run build:ios` again after changing the web app, then rebuild in Xcode.
 
 ## Keep your existing tracking data
 
-The iPhone app and Safari have separate local storage. In the web app, open **Settings → Export Backup**, save the JSON to Files, then open **Settings → Import Backup** in the iPhone app. Reconnect Apple Health after importing. Backups contain the saved activity summary, but importing never grants permission or automatically enables sync. Export in the native app opens Apple's share sheet so you can save a backup to Files.
+The iPhone app and Safari have separate local storage. In the web app, open **Settings → Export Data**, save the JSON to Files, then open **Settings → Import Data** in the iPhone app after initial setup. Reconnect Apple Health after importing. Backups contain the saved activity summary and workout pairings, but importing never grants permission or automatically enables sync. Export in the native app opens Apple's share sheet so you can save a backup to Files.
 
 ## TestFlight or App Store
 
@@ -35,13 +35,22 @@ Apple's references: [personal-device installation and seven-day limit](https://d
 
 ## Data behavior
 
-- HealthKit permission is requested only after tapping **Connect Apple Health**. No Health data is written back to Apple, sent to a server, or used to change calorie targets or training recommendations.
+- HealthKit permission is requested only after tapping **Connect Apple Health**. No Health data is written back to Apple, sent to a server, or used to change calorie targets. Recorded workouts automatically adjust the local training plan.
 - The app cannot tell whether an individual read permission was denied. Unavailable daily quantities display **—**, with instructions to check Health permissions. A completed permission request is never presented as proof that all access was granted.
 - Move and Exercise use Apple's activity summary where available. Move supports both calorie-based and time-based rings. Standing minutes and standing hours are separate values. Workout duration uses recorded active duration and may differ from Exercise ring time.
 - Steps and other daily quantities use HealthKit statistics queries to combine data sources, rather than adding raw Watch and iPhone samples together. Workout energy is shown per workout and is never added to the daily active-energy total.
 - Each refresh replaces the complete 30-day snapshot. Stable HealthKit workout UUIDs prevent repeat-sync duplicates, and deletions in Apple Health disappear on the next successful refresh. Errors preserve the last successful summary and its sync timestamp.
 - Sync runs while the app is visible and on return to the app. It does not promise delivery while the app is closed. **Disconnect & clear saved activity** stops refreshing and removes the local snapshot; revoke system permission separately in Apple Health.
 - Only the bundled main page can call the native bridge. External links open outside the app; remote pages and child frames cannot request Health data.
+
+## Training adjustments
+
+- Completed running and football workouts use their recorded duration toward the weekly running/playing ceiling and impact-day spacing. Football activates the existing two-day post-match recovery rule, including across week boundaries. Actual recorded playing time replaces the fixture reservation for that date.
+- Recorded walks, hikes, cycling and swimming count as conditioning; recorded strength sessions count toward weekly strength slots and spacing. Multiple conditioning or strength recordings on one day use one session slot. A day completed in Apple Health is shown as completed, with no extra workout assigned for that day. A scheduled football fixture still remains if the completed workout was only a walk or run.
+- Imported workouts never supply an assumed effort or pain-free status. Daily steps, Move calories, Exercise minutes and standing totals are displayed as context, without inventing an intensity rating. Your existing check-ins, pain rules, impact opt-ins and limits still apply. Strength progression continues to require your own manageable effort feedback.
+- **Add effort & shin feedback** on an imported day saves your feedback and explicitly links the included Health workouts, so their duration is not counted again. Original manual session snapshots are preserved when syncing or replanning.
+- Similar manual and Health workouts are paired automatically by date, activity category and duration (within five minutes or 20% of the Health duration, whichever is larger). Automatic pairing uses each manual log at most once; the closest duration is preferred. Because manual logs have no exact start time, use each workout's **Training log** control to correct a pairing or mark separate sessions. Paired copies use the larger duration and retain manual effort and shin feedback; one manual log can explicitly cover several recorded workout segments.
+- Planning is derived from the most recent cached Health snapshot and saved manual logs. Repeat syncs cannot accumulate duplicate imports; deletions or disconnecting remove the Health contribution on recomputation. Saved manual feedback remains. The Today card, weekly plan, running budget, impact count and 14-day progress share this accounting.
 
 ## Verification
 

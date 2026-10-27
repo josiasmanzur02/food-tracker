@@ -962,6 +962,7 @@ a {
 .activity-workouts { list-style: none; padding: 0; margin: 0; display: grid; }
 .activity-workouts li { display: flex; justify-content: space-between; gap: 1rem; padding: 1rem 0; border-bottom: 1px solid var(--border); }
 .activity-workouts li > div { min-width: 0; overflow-wrap: anywhere; }
+.activity-workouts .field select { width: 100%; }
 .activity-workout-totals { display: grid; gap: 0.3rem; text-align: right; flex-shrink: 0; }
 .activity-workout-totals span { font-size: 0.85rem; color: var(--muted); }
 @media (min-width: 600px) { .activity-metrics { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
